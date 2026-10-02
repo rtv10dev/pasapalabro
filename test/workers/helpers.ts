@@ -3,6 +3,8 @@ import { env, exports } from "cloudflare:workers";
 import {
   parseCreatedMatch,
   parseServerMessage,
+  PING,
+  PONG,
   type Action,
   type CreateMatchRequest,
   type DeviceKey,
@@ -104,7 +106,20 @@ export interface Device {
   send(action: Action | string): void;
   /** Closes the socket; resolves with the code of the Match's close reply. */
   disconnect(code?: number): Promise<number>;
+  /** Stops pinging the Match but leaves the socket open, as a locked phone can. */
+  lock(): void;
 }
+
+/** What `fireAlarm` needs of each Device following a Match. */
+interface Following {
+  /** Messages received so far, pongs aside. */
+  received(): number;
+  /** Pings the Match, as a visible page does; resolves once answered. Does nothing once locked. */
+  ping(): Promise<void>;
+}
+
+/** The Devices following each Match, by its id, until they close their socket. */
+const following = new Map<string, Set<Following>>();
 
 export function openSocket(
   matchId: string,
@@ -126,8 +141,16 @@ export async function connectDevice(
 
   const received: ServerMessage[] = [];
   const waiting: ((message: ServerMessage) => void)[] = [];
+  const pongs: (() => void)[] = [];
+  let count = 0;
+  let locked = false;
   socket.addEventListener("message", (event) => {
     if (typeof event.data !== "string") return;
+    if (event.data === PONG) {
+      pongs.shift()?.();
+      return;
+    }
+    count += 1;
     const message = parseServerMessage(event.data);
     if (!message) throw new Error(`Unexpected message: ${event.data}`);
     const waiter = waiting.shift();
@@ -161,7 +184,26 @@ export async function connectDevice(
       socket.close(code);
       return replied;
     },
+    lock() {
+      locked = true;
+    },
   };
+
+  const devices = following.get(matchId) ?? new Set();
+  following.set(matchId, devices);
+  const follower: Following = {
+    received: () => count,
+    ping() {
+      if (locked) return Promise.resolve();
+      const answered = new Promise<void>((resolve) => pongs.push(resolve));
+      socket.send(PING);
+      return answered;
+    },
+  };
+  devices.add(follower);
+  socket.addEventListener("close", () => {
+    devices.delete(follower);
+  });
   return device;
 }
 
@@ -188,12 +230,32 @@ export async function nextStateWhere(
   return view;
 }
 
+/** More alarms than any Match sets before a change: a 300 s Clock, checked every 5 s. */
+const MAX_ALARMS = 100;
+
 /**
- * Runs the Match's alarm now, as if its time had come; false if none was set.
- * Lets tests move past countdowns, Clocks and Handovers without waiting.
+ * Runs the Match's alarms now, as if their time had come, until one changes
+ * what the Devices following it see; false if none was set. Lets tests
+ * move past countdowns, Clocks, Handovers and Pauses without waiting.
+ * Meanwhile every Device that isn't locked pings the Match before each
+ * alarm, as a visible page does, so only locked ones go silent.
  */
-export function fireAlarm(matchId: string): Promise<boolean> {
-  return runDurableObjectAlarm(env.MATCH.get(env.MATCH.idFromString(matchId)));
+export async function fireAlarm(matchId: string): Promise<boolean> {
+  const stub = env.MATCH.get(env.MATCH.idFromString(matchId));
+  const devices = [...(following.get(matchId) ?? [])];
+  const received = (): number =>
+    devices.reduce((sum, device) => sum + device.received(), 0);
+  // A pong comes after whatever the Match sent before it, so once each
+  // Device has its pong, it has every state sent until then.
+  const pingAll = () => Promise.all(devices.map((device) => device.ping()));
+  await pingAll();
+  const before = received();
+  for (let alarms = 0; alarms < MAX_ALARMS; alarms += 1) {
+    if (!(await runDurableObjectAlarm(stub))) return alarms > 0;
+    await pingAll();
+    if (received() > before) return true;
+  }
+  throw new Error(`No change after ${MAX_ALARMS} alarms`);
 }
 
 export function isPlaying(view: MatchView): view is PlayingView {

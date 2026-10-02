@@ -22,7 +22,7 @@ export type Settings = z.infer<typeof settingsSchema>;
  * The secret a Device generates once per Match and sends on every connection,
  * so that it keeps its identity across reloads. Never shown to other Devices.
  */
-const deviceKeySchema = z.uuid();
+export const deviceKeySchema = z.uuid();
 export type DeviceKey = z.infer<typeof deviceKeySchema>;
 
 /** Validates a DeviceKey; null if it isn't one. */
@@ -278,6 +278,15 @@ const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rejected"), reason: z.enum(REJECTIONS) }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
+
+/**
+ * What a Device sends the Match every PING_MS while its page is visible, and
+ * what the Match answers: a locked phone can leave its socket open, and
+ * then its pings stop.
+ */
+export const PING = "ping";
+export const PONG = "pong";
+export const PING_MS = 4000;
 
 /** Validates a WebSocket message from the Match; null if it isn't one. */
 export function parseServerMessage(data: string): ServerMessage | null {

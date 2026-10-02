@@ -129,6 +129,12 @@ const HANDOVER_MS = 5000;
 /** How long a Pause lasts before the Match is abandoned. */
 const ABANDON_MS = 60_000;
 
+/**
+ * How long a Device can go unheard from, while a Turn is being played,
+ * before it counts as gone: a locked phone can leave its socket open.
+ */
+const SILENCE_MS = 10_000;
+
 const graphemes = new Intl.Segmenter("es", { granularity: "grapheme" });
 
 /**
@@ -249,22 +255,75 @@ export function rematch(
 /**
  * The Devices following the Match changed at `now`: `connected` are the
  * ones that have it open. A Device the current Turn needs dropping pauses
- * the Match; once they are all back, it goes on.
+ * the Match; once they are all back, it goes on. Devices found gone only
+ * after they `dropped`, like ones gone silent, pause it from the first time
+ * the Turn missed one it needed, or from when the Turn last moved if that
+ * was later.
  */
 export function devicesChanged(
   stored: MatchState,
   connected: ReadonlySet<DeviceKey>,
   now: number,
+  dropped: ReadonlyMap<DeviceKey, number> = new Map(),
 ): MatchState {
-  const ticked = tick(stored, now);
-  const state = {
-    ...ticked,
-    away: ticked.members
-      .filter(({ device }) => !connected.has(device))
-      .map(({ id }) => id),
-  };
+  const awayAt = (time: number): MemberId[] =>
+    stored.members
+      .filter(
+        ({ device }) =>
+          !connected.has(device) && (dropped.get(device) ?? now) <= time,
+      )
+      .map(({ id }) => id);
+  const times = [...new Set(dropped.values())]
+    .filter((time) => time < now)
+    .sort((a, b) => a - b);
+  let state = stored;
+  for (const time of times) {
+    state = { ...tick(state, time), away: awayAt(time) };
+    const play = state.start?.play;
+    if (play && missingFrom(state, play).length > 0) {
+      state = inPlay(state, pauseOrResume(state, play, lastMoved(play, time)));
+      break;
+    }
+  }
+  const ticked = { ...tick(state, now), away: awayAt(now) };
+  const play = ticked.start?.play;
+  return play ? inPlay(ticked, pauseOrResume(ticked, play, now)) : ticked;
+}
+
+/**
+ * The latest of `time` and when the Clock or the Handover last started, so
+ * a Pause that starts then gives back no time the Turn didn't run.
+ */
+function lastMoved(play: Play, time: number): number {
+  return Math.max(
+    time,
+    play.runningSince ?? time,
+    play.handover ? play.handover.endsAt - HANDOVER_MS : time,
+  );
+}
+
+/**
+ * Which Devices count as gone at `now`, given when each was last heard
+ * from: while a Turn is being played, the ones unheard for SILENCE_MS.
+ */
+export function silent<T>(
+  stored: MatchState,
+  heard: ReadonlyMap<T, number>,
+  now: number,
+): T[] {
+  if (!listening(tick(stored, now))) return [];
+  return [...heard]
+    .filter(([, at]) => now - at >= SILENCE_MS)
+    .map(([device]) => device);
+}
+
+/**
+ * Whether the Match listens for Devices going silent: from the end of the
+ * countdown until the Match is over or abandoned.
+ */
+export function listening(state: MatchState): boolean {
   const play = state.start?.play;
-  return play ? inPlay(state, pauseOrResume(state, play, now)) : state;
+  return play ? !play.abandoned && !isOver(play.progress) : false;
 }
 
 /** What the given Device sees of the Match right now. */

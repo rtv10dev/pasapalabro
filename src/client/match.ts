@@ -2,6 +2,8 @@ import { renderSVG } from "uqr";
 import {
   MAX_NAME_LENGTH,
   parseServerMessage,
+  PING,
+  PING_MS,
   PLAYER_ROLES,
   ROLES,
   type Action,
@@ -101,9 +103,22 @@ export function followMatch(matchId: string): void {
       if (socket !== opened) return;
       socket = null;
       showStatus("Sin conexión. Reconectando…");
+      // A hidden page doesn't ping, so the Match would drop it again: it
+      // follows the Match again once back on screen.
+      if (document.visibilityState === "hidden") return;
       retry = window.setTimeout(connect, RECONNECT_MS);
     });
   };
+  // Pinging while on screen tells the Match this Device is still here; a
+  // locked phone stops, and the Match notices even if the socket stays open.
+  window.setInterval(() => {
+    if (
+      document.visibilityState === "visible" &&
+      socket?.readyState === WebSocket.OPEN
+    ) {
+      socket.send(PING);
+    }
+  }, PING_MS);
   // Back online: no need to wait for the next try.
   window.addEventListener("online", () => {
     if (socket === null) connect();

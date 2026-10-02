@@ -7,6 +7,7 @@ import {
   newMatch,
   nextChange,
   rematch,
+  silent,
   tick,
   viewFor,
   type Context,
@@ -1386,8 +1387,11 @@ function away(
   now: number,
   ...gone: DeviceKey[]
 ): MatchState {
-  const connected = [ANA, BEA, CARLOS].filter((each) => !gone.includes(each));
-  return devicesChanged(state, new Set(connected), now);
+  return devicesChanged(state, connectedBut(gone), now);
+}
+
+function connectedBut(gone: DeviceKey[]): Set<DeviceKey> {
+  return new Set([ANA, BEA, CARLOS].filter((each) => !gone.includes(each)));
 }
 
 /** When a Device drops during `turnBegun()`'s Turn, Ana's. */
@@ -1547,6 +1551,130 @@ describe("an Abandoned Match", () => {
     expect(rematch(state, ANA, "next", ABANDONED)).toEqual({
       ok: false,
       reason: "match-not-over",
+    });
+  });
+});
+
+describe("a Device going silent", () => {
+  /** When each Device was last heard from: all at `now`, but Ana at `ana`. */
+  function heard(now: number, ana: number): Map<DeviceKey, number> {
+    return new Map([
+      [ANA, ana],
+      [BEA, now],
+      [CARLOS, now],
+    ]);
+  }
+
+  it("counts as gone once unheard for 10 s while a Turn is being played", () => {
+    const now = DROPPED + 10_000;
+
+    expect(silent(turnBegun(), heard(now, DROPPED), now)).toEqual([ANA]);
+    expect(silent(turnBegun(), heard(now, DROPPED + 1), now)).toEqual([]);
+  });
+
+  it("counts during a Pause, and once the countdown is over", () => {
+    const paused = away(turnBegun(), DROPPED, BEA);
+    const now = DROPPED + 20_000;
+
+    expect(silent(paused, heard(now, DROPPED), now)).toEqual([ANA]);
+    expect(silent(playing(), heard(now, NOW), now)).toEqual([ANA]);
+  });
+
+  it("doesn't count before the first Turn or once the Match has ended", () => {
+    const now = NOW + 60_000;
+    const lobby = lobbyOfThree();
+    const countdown = playing();
+    const { state: ended, now: overAt } = over();
+    const abandoned = tick(away(turnBegun(), DROPPED, BEA), ABANDONED);
+
+    expect(silent(lobby, heard(now, NOW), now)).toEqual([]);
+    expect(
+      silent(countdown, heard(PLAY_STARTS - 1, NOW - 20_000), PLAY_STARTS - 1),
+    ).toEqual([]);
+    expect(silent(ended, heard(overAt, NOW), overAt)).toEqual([]);
+    expect(silent(abandoned, heard(ABANDONED, NOW), ABANDONED)).toEqual([]);
+  });
+
+  it("pauses the Match from when it was last heard from", () => {
+    const noticed = DROPPED + 12_000;
+
+    const state = devicesChanged(
+      turnBegun(),
+      connectedBut([ANA]),
+      noticed,
+      new Map([[ANA, DROPPED]]),
+    );
+
+    const view = playingView(state, BEA, noticed);
+    expect(view.roscos.player1.clockMs).toBe(170_000);
+    expect(view.pause).toEqual({
+      missing: [idOf(state, ANA)],
+      abandonMs: 48_000,
+    });
+  });
+
+  it("pauses no earlier than the Clock last started", () => {
+    const state = devicesChanged(
+      turnBegun(),
+      connectedBut([ANA]),
+      PLAY_STARTS + 5000,
+      new Map([[ANA, NOW]]),
+    );
+
+    const view = playingView(state, BEA, PLAY_STARTS + 5000);
+    expect(view.roscos.player1.clockMs).toBe(180_000);
+    expect(view.pause?.abandonMs).toBe(55_000);
+  });
+
+  it("pauses no earlier than the Handover began", () => {
+    // After Ana's Fallo, Bea plays next and Ana is her Host.
+    const missed = judged(turnBegun(), BEA, "miss", JUDGED);
+
+    const state = devicesChanged(
+      missed,
+      connectedBut([BEA]),
+      JUDGED + 3000,
+      new Map([[BEA, PLAY_STARTS]]),
+    );
+
+    expect(playingView(state, ANA, JUDGED + 3000)).toMatchObject({
+      stage: "handover",
+      handoverMs: 5000,
+    });
+  });
+
+  it("pauses from when the first Device the Turn needs was last heard from", () => {
+    // In a Hosted Match, Bea waits for her Turn: her silence pauses nothing.
+    const noticed = DROPPED + 12_000;
+    const state = devicesChanged(
+      turnBegun(HOSTED),
+      connectedBut([ANA, BEA]),
+      noticed,
+      new Map([
+        [BEA, PLAY_STARTS + 2000],
+        [ANA, DROPPED],
+      ]),
+    );
+
+    const view = playingView(state, CARLOS, noticed);
+    expect(view.roscos.player1.clockMs).toBe(170_000);
+    expect(view.pause?.abandonMs).toBe(48_000);
+  });
+
+  it("pauses from when the Turn passed to a Player last heard from before", () => {
+    // Bea goes silent during Ana's Turn, which runs out while unnoticed.
+    const state = devicesChanged(
+      turnBegun(HOSTED),
+      connectedBut([BEA]),
+      CLOCK_OUT + 3000,
+      new Map([[BEA, DROPPED]]),
+    );
+
+    expect(playingView(state, CARLOS, CLOCK_OUT + 3000)).toMatchObject({
+      turn: "player2",
+      stage: "handover",
+      handoverMs: 5000,
+      pause: { missing: [idOf(state, BEA)], abandonMs: 57_000 },
     });
   });
 });

@@ -95,3 +95,46 @@ describe("a Pause", () => {
     expect((await nextPlaying(back)).stage).toBe("abandoned");
   });
 });
+
+describe("a Device gone silent", () => {
+  it("pauses the Match when the Turn needs it, its socket left open but no longer pinging", async () => {
+    const { id, player, host, playerId } = await running();
+
+    player.lock();
+    expect(await fireAlarm(id)).toBe(true);
+
+    const view = await nextPlaying(host);
+    expect(view).toMatchObject({
+      stage: "running",
+      pause: { missing: [playerId] },
+    });
+    // Paused from its last ping, found 10 s before it was noticed.
+    expect(view.pause?.abandonMs).toBeGreaterThan(49_000);
+    expect(view.pause?.abandonMs).toBeLessThanOrEqual(50_000);
+  });
+
+  it("doesn't pause the Match while it keeps pinging", async () => {
+    const { id, host } = await running();
+
+    expect(await fireAlarm(id)).toBe(true);
+
+    // The next change is the Clock running out.
+    const view = await nextPlaying(host);
+    expect(view).toMatchObject({ stage: "handover", pause: null });
+  });
+
+  it("can come back through the same link and go on with the Turn", async () => {
+    const { id, player, host, playerId } = await running();
+    player.lock();
+    await fireAlarm(id);
+    await nextPlaying(host, (view) => view.pause !== null);
+
+    const back = await connectDevice(id, player.key);
+
+    expect(await nextPlaying(back)).toMatchObject({
+      you: playerId,
+      stage: "running",
+      pause: null,
+    });
+  });
+});

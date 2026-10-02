@@ -1,20 +1,27 @@
 import { DurableObject } from "cloudflare:workers";
+import * as z from "zod/mini";
 import { generateRosco } from "../clues/generate";
 import {
   act,
   addRosco,
   devicesChanged,
+  listening,
   missingRoscos,
   newMatch,
   nextChange,
   rematch,
+  silent,
   tick,
   viewFor,
   type MatchState,
 } from "../rules/match";
 import {
+  deviceKeySchema,
   parseAction,
   parseDeviceKey,
+  PING,
+  PING_MS,
+  PONG,
   type Creator,
   type DeviceKey,
   type Rejection,
@@ -34,6 +41,30 @@ const NORMAL_CLOSURE = 1000;
 const RESERVED_CLOSE_CODES: readonly number[] = [1005, 1006, 1015];
 
 const STATE_KEY = "state";
+/** When the alarm was last set for, in epoch milliseconds. */
+const ALARM_KEY = "alarm";
+/** When the next heartbeat check is due, in epoch milliseconds; none while the Match isn't listening. */
+const CHECK_KEY = "check";
+
+/**
+ * How often the Match checks which Devices still ping while it listens for
+ * Devices going silent. Longer than PING_MS, so every check finds a new
+ * ping from each Device that is still there.
+ */
+const CHECK_MS = Math.max(5000, PING_MS + 1000);
+
+/** What the Match keeps on each socket. */
+const attachmentSchema = z.object({
+  device: deviceKeySchema,
+  /**
+   * When it was last heard from, in the Match's time: when it connected, or
+   * when it sent the last ping a heartbeat check found.
+   */
+  heard: z.number(),
+  /** When the last heartbeat check looked at it, by this clock; pings since are new. */
+  checked: z.number(),
+});
+type Attachment = z.infer<typeof attachmentSchema>;
 
 /** How long to wait before generating a Match's Roscos again when every model failed. */
 const GENERATION_RETRY_MS = 60_000;
@@ -46,6 +77,12 @@ const GENERATION_RETRY_MS = 60_000;
  * stores state, validates messages and broadcasts.
  */
 export class Match extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // The runtime answers pings itself, so they don't wake the Match.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+  }
+
   /**
    * Sets the Match up; the Worker calls it once, right after issuing the id.
    * Takes its Roscos from the Stock, and generates any the Stock didn't have.
@@ -78,13 +115,13 @@ export class Match extends DurableObject<Env> {
     );
     for (const rosco of roscos) state = addRosco(state, rosco, Date.now());
     this.save(state);
-    if (missingRoscos(state) > 0) await this.ctx.storage.setAlarm(Date.now());
+    if (missingRoscos(state) > 0) await this.setAlarm(Date.now());
   }
 
   /**
    * Generates the Roscos the Stock couldn't give while any are missing;
    * once they are all here, applies the change time has brought: the end of
-   * a countdown or Handover, or a Clock reaching zero.
+   * a countdown or Handover, a Clock reaching zero, or Devices gone silent.
    */
   override async alarm(): Promise<void> {
     const state = this.load();
@@ -112,31 +149,123 @@ export class Match extends DurableObject<Env> {
       } else console.error("Couldn't generate a Rosco", result.reason);
     }
     this.save(state);
-    this.broadcast(state, this.ctx.getWebSockets());
+    this.broadcast(state, this.sockets());
     if (missingRoscos(state) > 0) {
-      await this.ctx.storage.setAlarm(Date.now() + GENERATION_RETRY_MS);
-    } else await this.wakeForNextChange(state);
-  }
-
-  private async passTime(state: MatchState): Promise<void> {
-    // An alarm only runs once its time has come, so the change it was set
-    // for is due even if this clock reads a moment earlier.
-    const now = Math.max(Date.now(), nextChange(state) ?? 0);
-    const next = tick(state, now);
-    this.save(next);
-    this.broadcast(next, this.ctx.getWebSockets(), now);
-    await this.wakeForNextChange(next);
+      await this.setAlarm(Date.now() + GENERATION_RETRY_MS);
+    } else await this.setNextAlarm(state, Date.now());
   }
 
   /**
-   * Sets the alarm for the next change time alone makes, if any. Each stored
-   * change resets it, so an alarm left over from before is at worst early,
-   * and then changes nothing. While Roscos are missing there is no such
-   * change, so the generation's alarm is left alone.
+   * Applies what time has changed: the change the alarm was set for, if it
+   * was, and the Devices gone silent, if a heartbeat check was due.
    */
-  private async wakeForNextChange(state: MatchState): Promise<void> {
-    const at = nextChange(state);
-    if (at !== null) await this.ctx.storage.setAlarm(at);
+  private async passTime(state: MatchState): Promise<void> {
+    // An alarm only runs once its time has come, so the time it was set
+    // for has passed even if this clock reads a moment earlier.
+    const now = Math.max(
+      Date.now(),
+      this.ctx.storage.kv.get<number>(ALARM_KEY) ?? 0,
+    );
+    const checkAt = this.ctx.storage.kv.get<number>(CHECK_KEY);
+    let checked = { state, sockets: this.sockets() };
+    if (checkAt !== undefined && now >= checkAt) {
+      this.ctx.storage.kv.delete(CHECK_KEY);
+      checked = this.dropSilent(state, now);
+    }
+    const { sockets } = checked;
+    const next = tick(checked.state, now);
+    if (next !== state) {
+      this.save(next);
+      this.broadcast(next, sockets, now);
+    }
+    await this.setNextAlarm(next, now);
+  }
+
+  /**
+   * Closes the sockets of the Devices gone silent, which may pause the
+   * Match from when they were last heard from. Returns the state with them
+   * gone, and the sockets left.
+   */
+  private dropSilent(
+    state: MatchState,
+    now: number,
+  ): { state: MatchState; sockets: WebSocket[] } {
+    const sockets = this.sockets();
+    const heard = new Map<WebSocket, number>();
+    for (const socket of sockets) {
+      const at = this.lastHeard(socket, now);
+      if (at !== null) heard.set(socket, at);
+    }
+    const gone = silent(state, heard, now);
+    if (gone.length === 0) return { state, sockets };
+    for (const socket of gone) socket.close(NORMAL_CLOSURE, "Sin señal");
+    const left = sockets.filter((socket) => !gone.includes(socket));
+    // A Device whose other socket is still open hasn't gone; one with more
+    // than one silent socket was last heard from on the latest.
+    const dropped = new Map<DeviceKey, number>();
+    for (const socket of gone) {
+      const device = deviceOf(socket);
+      const at = heard.get(socket) ?? now;
+      if (device) dropped.set(device, Math.max(at, dropped.get(device) ?? at));
+    }
+    return {
+      state: devicesChanged(state, devicesOf(left), now, dropped),
+      sockets: left,
+    };
+  }
+
+  /**
+   * When the socket was last heard from, as of a heartbeat check at `now`:
+   * when it sent the last ping the runtime answered, counted back from `now`
+   * so it is in the Match's time.
+   */
+  private lastHeard(socket: WebSocket, now: number): number | null {
+    const attachment = attachmentOf(socket);
+    if (!attachment) return null;
+    const clock = Date.now();
+    const ping = this.ctx.getWebSocketAutoResponseTimestamp(socket)?.getTime();
+    const heard =
+      ping !== undefined && ping >= attachment.checked
+        ? now - Math.max(0, clock - ping)
+        : attachment.heard;
+    attach(socket, { ...attachment, heard, checked: clock });
+    return heard;
+  }
+
+  /**
+   * Sets the alarm for the next change time alone makes, or for the next
+   * heartbeat check if that comes first. Each stored change resets it, so
+   * an alarm left over from before is at worst early, and then changes
+   * nothing. While Roscos are missing there is neither, so the generation's
+   * alarm is left alone.
+   */
+  private async setNextAlarm(state: MatchState, now: number): Promise<void> {
+    const times = [nextChange(state), this.nextCheck(state, now)].filter(
+      (time) => time !== null,
+    );
+    if (times.length > 0) await this.setAlarm(Math.min(...times));
+  }
+
+  /**
+   * When the next heartbeat check is due while the Match listens for
+   * Devices going silent: one already set keeps its time until it has run,
+   * so a stream of actions can't keep putting it off.
+   */
+  private nextCheck(state: MatchState, now: number): number | null {
+    if (!listening(state)) {
+      this.ctx.storage.kv.delete(CHECK_KEY);
+      return null;
+    }
+    const due = this.ctx.storage.kv.get<number>(CHECK_KEY);
+    if (due !== undefined) return due;
+    const next = now + CHECK_MS;
+    this.ctx.storage.kv.put(CHECK_KEY, next);
+    return next;
+  }
+
+  private async setAlarm(at: number): Promise<void> {
+    this.ctx.storage.kv.put(ALARM_KEY, at);
+    await this.ctx.storage.setAlarm(at);
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -151,10 +280,11 @@ export class Match extends DurableObject<Env> {
 
     const { 0: deviceEnd, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
-    socket.serializeAttachment(device);
+    const now = Date.now();
+    attach(socket, { device, heard: now, checked: now });
     // Everyone sees this Device's Member connected, which may end a Pause,
     // and it gets its first view.
-    await this.devicesChanged(state, this.ctx.getWebSockets());
+    await this.devicesChanged(state, this.sockets());
     return new Response(null, { status: 101, webSocket: deviceEnd });
   }
 
@@ -175,7 +305,7 @@ export class Match extends DurableObject<Env> {
       return;
     }
 
-    const sockets = this.ctx.getWebSockets();
+    const sockets = this.sockets();
     const result = act(state, device, action, {
       now: Date.now(),
       random: Math.random(),
@@ -187,7 +317,7 @@ export class Match extends DurableObject<Env> {
     }
     this.save(result.state);
     this.broadcast(result.state, sockets);
-    await this.wakeForNextChange(result.state);
+    await this.setNextAlarm(result.state, Date.now());
   }
 
   /**
@@ -208,7 +338,7 @@ export class Match extends DurableObject<Env> {
       // Created before any Device is pointed to it, so none finds it missing.
       await this.env.MATCH.get(id).createRematch(result.rematchState);
       this.save(result.state);
-      this.broadcast(result.state, this.ctx.getWebSockets());
+      this.broadcast(result.state, this.sockets());
     });
   }
 
@@ -236,7 +366,7 @@ export class Match extends DurableObject<Env> {
     if (!state) return;
     await this.devicesChanged(
       state,
-      this.ctx.getWebSockets().filter((socket) => socket !== gone),
+      this.sockets().filter((socket) => socket !== gone),
     );
   }
 
@@ -252,7 +382,14 @@ export class Match extends DurableObject<Env> {
     const next = devicesChanged(state, devicesOf(sockets), now);
     this.save(next);
     this.broadcast(next, sockets, now);
-    await this.wakeForNextChange(next);
+    await this.setNextAlarm(next, now);
+  }
+
+  /** The sockets still open: one the Match closed may linger until it's answered. */
+  private sockets(): WebSocket[] {
+    return this.ctx
+      .getWebSockets()
+      .filter((socket) => socket.readyState === WebSocket.OPEN);
   }
 
   /** Sends each of the given sockets its own view of the state. */
@@ -280,9 +417,18 @@ export class Match extends DurableObject<Env> {
   }
 }
 
-function deviceOf(socket: WebSocket): DeviceKey | null {
+function attachmentOf(socket: WebSocket): Attachment | null {
   const attachment: unknown = socket.deserializeAttachment();
-  return parseDeviceKey(attachment);
+  const result = attachmentSchema.safeParse(attachment);
+  return result.success ? result.data : null;
+}
+
+function attach(socket: WebSocket, attachment: Attachment): void {
+  socket.serializeAttachment(attachment);
+}
+
+function deviceOf(socket: WebSocket): DeviceKey | null {
+  return attachmentOf(socket)?.device ?? null;
 }
 
 function devicesOf(sockets: WebSocket[]): Set<DeviceKey> {
