@@ -6,7 +6,7 @@ Evidence: branch `prototype/engines`, page `/speech.html` and `POST /api/transcr
 
 ## Considered Options
 
-- **Recognition decides, with sound-based matching** (compare Spanish phonetic keys, skip articles): fixed each case we found, but each fix let new near-miss words through (*ñandú* vs *nandu*) and none fixed Brave or Safari.
+- **Recognition decides, with sound-based matching** (compare Spanish phonetic keys, skip articles): fixed each case we found, but each fix let new near-miss words through (_ñandú_ vs _nandu_) and none fixed Brave or Safari.
 - **Recognition suggests, a person confirms**: keeps every browser problem and cost of recognition for a verdict the person makes anyway.
 - **Solo play with self-judging**: dropped; a Match always has two Players.
 
