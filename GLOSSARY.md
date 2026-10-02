@@ -5,12 +5,12 @@ An online, Spanish-language version of El Rosco, the final round of the TV show 
 ## Language
 
 **Match**:
-A session of play for one or two Players, each with their own Rosco.
+A session of play in one room for two Players, each with their own Rosco.
 _UI_: Partida
 _Avoid_: Game, room, round
 
 **Hosted Match**:
-A Match played in one room where a Host reads the Clues aloud instead of the app.
+A Match with a dedicated Host who does not play, instead of the Players taking turns as Host.
 _UI_: Partida con Presentador
 _Avoid_: Presenter mode, live mode
 
@@ -30,9 +30,14 @@ _UI_: Jugador
 _Avoid_: Contestant, participant, user
 
 **Host**:
-A person who starts each Turn and reads the Clues aloud in a Hosted Match, without playing a Rosco.
+The person who reads the Clues aloud and judges the answers during a Turn: the dedicated Host in a Hosted Match, otherwise the Player who is waiting.
 _UI_: Presentador
-_Avoid_: Presenter, moderator, admin
+_Avoid_: Judge, referee, presenter, moderator, admin
+
+**Mirror**:
+The view on the playing Player's phone of themselves through the front camera, with their Rosco around their head.
+_UI_: Espejo
+_Avoid_: Camera view, selfie mode
 
 **Rosco**:
 A wheel of one Clue per letter of the Spanish alphabet that a Player must work through against the clock.
@@ -55,12 +60,12 @@ _UI_: Turno
 _Avoid_: Round, go
 
 **Hit**:
-A correct answer to a Clue; the Player keeps the Turn.
+An answer the Host judges correct; the Player keeps the Turn.
 _UI_: Acierto
 _Avoid_: Correct, point
 
 **Miss**:
-A wrong answer to a Clue; the answer is revealed and the Turn passes to the other Player.
+An answer the Host judges wrong; the answer is revealed and the Turn passes to the other Player.
 _UI_: Fallo
 _Avoid_: Error, wrong
 
