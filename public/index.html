@@ -10,7 +10,48 @@
   <body>
     <main>
       <h1>Pasapalabra</h1>
-      <button id="create" type="button">Crear partida</button>
+      <form id="create" class="stack">
+        <label class="field">
+          Tu nombre
+          <input
+            name="name"
+            required
+            autocomplete="nickname"
+            enterkeyhint="go"
+          />
+        </label>
+        <fieldset class="field">
+          <legend>Dificultad</legend>
+          <div class="choices">
+            <label
+              ><input type="radio" name="difficulty" value="easy" />
+              Fácil</label
+            >
+            <label>
+              <input type="radio" name="difficulty" value="normal" checked />
+              Normal
+            </label>
+            <label
+              ><input type="radio" name="difficulty" value="hard" />
+              Difícil</label
+            >
+          </div>
+        </fieldset>
+        <label class="field">
+          Tiempo por jugador
+          <select name="clockSeconds">
+            <option value="120">2 minutos</option>
+            <option value="180" selected>3 minutos</option>
+            <option value="240">4 minutos</option>
+            <option value="300">5 minutos</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="hosted" />
+          Partida con Presentador
+        </label>
+        <button type="submit">Crear partida</button>
+      </form>
       <p id="status" role="status"></p>
     </main>
   </body>

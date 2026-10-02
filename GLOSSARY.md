@@ -19,6 +19,16 @@ The person who sets up a Match and assigns its Host and Player roles.
 _UI_: Creador
 _Avoid_: Owner, admin, leader
 
+**Member**:
+A person who has joined a Match by typing a name, the Creator included; the Host and the Players are chosen among the Members.
+_UI_: none (the UI lists names)
+_Avoid_: Guest, user, participant
+
+**Lobby**:
+The stage of a Match before it starts, where Members join and the Creator assigns the roles and presses Empezar.
+_UI_: Sala de espera
+_Avoid_: Waiting room, setup screen
+
 **Rematch**:
 A new Match with the same settings and the same people as one that just ended.
 _UI_: Revancha
@@ -53,6 +63,11 @@ _Avoid_: Wheel, board, round
 The statement whose answer starts with, or contains, a given letter of the Rosco.
 _UI_: Definición
 _Avoid_: Definition, question, hint
+
+**Clock**:
+The time a Player has left for their Rosco; both Players start a Match with the same time, chosen by the Creator.
+_UI_: Tiempo
+_Avoid_: Timer
 
 **Pasapalabra**:
 A Player's choice to skip the current Clue and come back to it later in the same Rosco.

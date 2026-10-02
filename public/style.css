@@ -4,6 +4,9 @@
   --fg: #12172b;
   --accent: #1f5fd6;
   --accent-fg: #ffffff;
+  --muted: #5a6280;
+  --line: #c9cfe0;
+  --field: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -11,6 +14,9 @@
     --bg: #0d1224;
     --fg: #e9edf8;
     --accent: #4c86f0;
+    --muted: #9aa3c0;
+    --line: #2e3654;
+    --field: #161d36;
   }
 }
 
@@ -30,7 +36,105 @@ body {
 }
 
 main {
+  width: 100%;
+  max-width: 28rem;
   text-align: center;
+}
+
+h1 {
+  margin-top: 0;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: start;
+  font-weight: 600;
+}
+
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+}
+
+.choices {
+  display: flex;
+  gap: 1rem;
+  font-weight: normal;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+input:not([type]),
+select {
+  font: inherit;
+  font-weight: normal;
+  padding: 0.6em 0.75em;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--field);
+  color: var(--fg);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.qr {
+  /* Always black on white, so phones scan it in dark mode too. */
+  width: min(60vw, 14rem);
+  align-self: center;
+  border-radius: 0.5rem;
+  image-rendering: pixelated;
+}
+
+.link {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.members {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1.8;
+}
+
+.role {
+  margin: 0;
+}
+
+.first {
+  font-size: 1.25rem;
+}
+
+.countdown {
+  font-size: 4rem;
+  font-weight: 700;
+  margin: 0;
 }
 
 button {
@@ -44,7 +148,15 @@ button {
   cursor: pointer;
 }
 
+button.secondary {
+  font-size: 1rem;
+  align-self: center;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
 button:disabled {
-  opacity: 0.6;
-  cursor: progress;
+  opacity: 0.5;
+  cursor: not-allowed;
 }

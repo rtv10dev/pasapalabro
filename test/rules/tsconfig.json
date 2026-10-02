@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2024"],
-    "types": ["../../worker-configuration.d.ts"]
+    "types": []
   },
-  "include": [".", "../rules", "../shared"]
+  "include": [".", "../../src/rules", "../../src/shared"]
 }
