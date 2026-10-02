@@ -214,18 +214,23 @@ export async function nextPlaying(
 }
 
 /**
- * A non-Hosted Match with Ana (the Creator) as Player 1 and Bea as Player 2,
- * past its countdown: both pressed ¡Listo! and the countdown's alarm has run.
+ * A Match with Ana (the Creator) as Player 1, Bea as Player 2 and, if
+ * Hosted, Carlos as Host, past its countdown: both Players pressed ¡Listo!
+ * and the countdown's alarm has run.
  */
-export async function firstTurn(): Promise<{
+export async function firstTurn(settings: Settings = UNHOSTED): Promise<{
   id: string;
   players: Record<PlayerRole, Device>;
+  /** Carlos's Device in a Hosted Match; null otherwise. */
+  host: Device | null;
   first: PlayerRole;
 }> {
-  const { id, creator } = await createMatch();
+  const { id, creator } = await createMatch(settings);
   const ana = await connectDevice(id, creator);
   const { you: anaId } = await ana.nextState();
   const bea = await join(id, "Bea");
+  const carlos = settings.hosted ? await join(id, "Carlos") : null;
+  if (carlos) ana.send({ type: "assign", role: "host", member: carlos.id });
   ana.send({ type: "assign", role: "player1", member: anaId });
   ana.send({ type: "assign", role: "player2", member: bea.id });
   ana.send({ type: "start" });
@@ -241,6 +246,7 @@ export async function firstTurn(): Promise<{
   return {
     id,
     players: { player1: ana, player2: bea.device },
+    host: carlos?.device ?? null,
     first: started.firstPlayer,
   };
 }

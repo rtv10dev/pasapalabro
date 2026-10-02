@@ -150,10 +150,10 @@ describe("a Device following a Match", () => {
 
     // The runtime reports a connection that broke with no close frame (a
     // phone locked, Wi-Fi gone) as 1006, a code no endpoint may send back.
-    const closing = runInDurableObject(stub, (match, state) => {
+    const closing = runInDurableObject(stub, async (match, state) => {
       const [socket] = state.getWebSockets();
       if (!socket) throw new Error("No socket");
-      match.webSocketClose(socket, 1006, "");
+      await match.webSocketClose(socket, 1006, "");
     });
 
     await expect(closing).resolves.toBeUndefined();

@@ -89,6 +89,16 @@ The short countdown between two Turns, during which a Miss's answer is shown on 
 _UI_: Cambio de turno
 _Avoid_: Transition, pause, break
 
+**Pause**:
+The wait while a Device the current Turn needs (the playing Player's or the Host's) has dropped: the Clock and any Handover stop, and every other Device shows who is missing, until it comes back or the Match is abandoned.
+_UI_: Partida en pausa
+_Avoid_: Freeze, hold, disconnection
+
+**Abandoned Match**:
+A Match that ended because a Pause lasted 60 seconds; it has no Results.
+_UI_: Partida abandonada
+_Avoid_: Cancelled, aborted, timed out
+
 **Hit**:
 An answer the Host judges correct; the Player keeps the Turn.
 _UI_: Acierto

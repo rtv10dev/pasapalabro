@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   act,
   addRosco,
+  devicesChanged,
   missingRoscos,
   newMatch,
   nextChange,
@@ -1375,6 +1376,177 @@ describe("Revancha", () => {
     expect(rematch(state, ANA, "another", NOW)).toEqual({
       ok: false,
       reason: "already-rematched",
+    });
+  });
+});
+
+/** Tells the Match which Devices have it open at `now`: everyone but `gone`. */
+function away(
+  state: MatchState,
+  now: number,
+  ...gone: DeviceKey[]
+): MatchState {
+  const connected = [ANA, BEA, CARLOS].filter((each) => !gone.includes(each));
+  return devicesChanged(state, new Set(connected), now);
+}
+
+/** When a Device drops during `turnBegun()`'s Turn, Ana's. */
+const DROPPED = PLAY_STARTS + 10_000;
+
+describe("a Pause", () => {
+  it("stops the running Clock when the playing Player's Device drops", () => {
+    const state = away(turnBegun(), DROPPED, ANA);
+
+    const view = playingView(state, BEA, DROPPED + 20_000);
+    expect(view.stage).toBe("running");
+    expect(view.roscos.player1.clockMs).toBe(170_000);
+    expect(view.pause).toEqual({
+      missing: [idOf(state, ANA)],
+      abandonMs: 40_000,
+    });
+  });
+
+  it("starts when the Host's Device drops", () => {
+    const state = away(turnBegun(), DROPPED, BEA);
+
+    expect(playingView(state, ANA, DROPPED).pause).toEqual({
+      missing: [idOf(state, BEA)],
+      abandonMs: 60_000,
+    });
+  });
+
+  it("doesn't start when a Device the Turn doesn't need drops", () => {
+    // Carlos has no role; in a Hosted Match, Bea waits for her Turn.
+    const unhosted = away(turnBegun(), DROPPED, CARLOS);
+    const hosted = away(turnBegun(HOSTED), DROPPED, BEA);
+
+    for (const state of [unhosted, hosted]) {
+      const view = playingView(state, ANA, DROPPED + 20_000);
+      expect(view.pause).toBeNull();
+      expect(view.roscos.player1.clockMs).toBe(150_000);
+      expect(nextChange(state)).toBe(CLOCK_OUT);
+    }
+  });
+
+  it("ends once every Device the Turn needs is back, the Clock going on from where it stopped", () => {
+    const paused = away(turnBegun(), DROPPED, ANA, BEA);
+    const anaBack = away(paused, DROPPED + 10_000, BEA);
+    expect(playingView(anaBack, ANA, DROPPED + 10_000).pause).toEqual({
+      missing: [idOf(paused, BEA)],
+      abandonMs: 50_000,
+    });
+
+    const back = away(anaBack, DROPPED + 30_000);
+
+    const view = playingView(back, BEA, DROPPED + 40_000);
+    expect(view).toMatchObject({ stage: "running", pause: null });
+    expect(view.roscos.player1.clockMs).toBe(160_000);
+    expect(nextChange(back)).toBe(CLOCK_OUT + 30_000);
+  });
+
+  it("stops the Handover too", () => {
+    // After Ana's Fallo, Bea plays next and Ana is her Host.
+    const missed = judged(turnBegun(), BEA, "miss", JUDGED);
+    const paused = away(missed, JUDGED + 1000, BEA);
+
+    const waited = tick(paused, JUDGED + 30_000);
+    expect(playingView(waited, ANA, JUDGED + 30_000)).toMatchObject({
+      stage: "handover",
+      handoverMs: 4000,
+    });
+
+    const back = away(waited, JUDGED + 31_000);
+    expect(nextChange(back)).toBe(HANDED_OVER + 30_000);
+  });
+
+  it("starts when the Turn passes to a Player whose Device has dropped", () => {
+    const beaGone = away(turnBegun(HOSTED), PLAY_STARTS + 1000, BEA);
+
+    const missed = judged(beaGone, CARLOS, "miss", JUDGED);
+
+    expect(playingView(missed, CARLOS, JUDGED).pause).toEqual({
+      missing: [idOf(missed, BEA)],
+      abandonMs: 60_000,
+    });
+  });
+
+  it("starts with the first Turn if a Device it needs dropped during the countdown", () => {
+    const state = away(playing(), NOW + 1000, ANA);
+
+    expect(playingView(state, BEA, PLAY_STARTS + 10_000).pause).toEqual({
+      missing: [idOf(state, ANA)],
+      abandonMs: 50_000,
+    });
+  });
+
+  it("doesn't start once the Match is over", () => {
+    const { state, now } = over();
+
+    const view = playingView(away(state, now, ANA), BEA, now);
+    expect(view).toMatchObject({ stage: "over", pause: null });
+  });
+
+  it("holds back Empezar turno and the verdicts", () => {
+    const waiting = away(tick(playing(), PLAY_STARTS), PLAY_STARTS, ANA);
+    expect(
+      rejection(waiting, BEA, { type: "begin-turn" }, at(PLAY_STARTS + 1000)),
+    ).toBe("match-paused");
+
+    const running = away(turnBegun(), DROPPED, ANA);
+    expect(
+      rejection(
+        running,
+        BEA,
+        { type: "judge", verdict: "hit" },
+        at(DROPPED + 1000),
+      ),
+    ).toBe("match-paused");
+  });
+
+  it("makes its 60 s end the next change time alone makes", () => {
+    expect(nextChange(away(turnBegun(), DROPPED, ANA))).toBe(DROPPED + 60_000);
+  });
+});
+
+/** When the Pause that began at DROPPED reaches 60 s. */
+const ABANDONED = DROPPED + 60_000;
+
+describe("an Abandoned Match", () => {
+  it("is one whose Pause lasted 60 s, on every Device", () => {
+    const state = tick(away(turnBegun(), DROPPED, ANA), ABANDONED);
+
+    for (const device of [ANA, BEA, CARLOS]) {
+      expect(playingView(state, device, ABANDONED)).toMatchObject({
+        stage: "abandoned",
+        pause: null,
+        results: null,
+        clue: null,
+      });
+    }
+  });
+
+  it("isn't one a moment before", () => {
+    const state = away(turnBegun(), DROPPED, ANA);
+
+    expect(playingView(state, BEA, ABANDONED - 1).stage).toBe("running");
+  });
+
+  it("stays abandoned when the Device comes back", () => {
+    const back = away(away(turnBegun(), DROPPED, ANA), ABANDONED + 1000);
+
+    expect(playingView(back, ANA, ABANDONED + 2000).stage).toBe("abandoned");
+    expect(nextChange(back)).toBeNull();
+  });
+
+  it("takes no more verdicts, and can't be rematched", () => {
+    const state = tick(away(turnBegun(), DROPPED, ANA), ABANDONED);
+
+    expect(
+      rejection(state, BEA, { type: "judge", verdict: "hit" }, at(ABANDONED)),
+    ).toBe("match-abandoned");
+    expect(rematch(state, ANA, "next", ABANDONED)).toEqual({
+      ok: false,
+      reason: "match-not-over",
     });
   });
 });

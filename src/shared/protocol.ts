@@ -121,6 +121,8 @@ export const REJECTIONS = [
   "turn-not-running",
   "match-not-over",
   "already-rematched",
+  "match-paused",
+  "match-abandoned",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -169,9 +171,16 @@ export type RoscoView = z.infer<typeof roscoViewSchema>;
 
 /**
  * Where the Turn stands: waiting for Empezar turno, the Clock running,
- * the Handover to the next Turn, or both Players finished.
+ * the Handover to the next Turn, both Players finished, or the Match
+ * abandoned after a Pause of 60 s.
  */
-export const TURN_STAGES = ["waiting", "running", "handover", "over"] as const;
+export const TURN_STAGES = [
+  "waiting",
+  "running",
+  "handover",
+  "over",
+  "abandoned",
+] as const;
 export type TurnStage = (typeof TURN_STAGES)[number];
 
 /** The answer to a Clue the Player has just missed. */
@@ -242,6 +251,14 @@ const matchViewSchema = z.discriminatedUnion("phase", [
         text: z.string(),
         answer: z.string(),
       }),
+    ),
+    /**
+     * Set while a Device the Turn needs has dropped: who is missing, and the
+     * milliseconds left, as of sending, before the Match is abandoned. While
+     * it is set, the Clock and the Handover don't move. Null otherwise.
+     */
+    pause: z.nullable(
+      z.object({ missing: z.array(memberIdSchema), abandonMs: z.number() }),
     ),
     /** The answer to the Clue just missed, for every Device during the Handover. */
     revealed: z.nullable(revealedSchema),

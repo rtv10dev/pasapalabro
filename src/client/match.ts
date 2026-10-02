@@ -57,6 +57,8 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "turn-not-running": "El turno no está en marcha.",
   "match-not-over": "La partida aún no ha terminado.",
   "already-rematched": "La revancha ya ha empezado.",
+  "match-paused": "La partida está en pausa.",
+  "match-abandoned": "La partida se ha abandonado.",
 };
 
 const RESULT_LABELS: Record<LetterResult, string> = {
@@ -65,6 +67,12 @@ const RESULT_LABELS: Record<LetterResult, string> = {
   miss: "fallo",
 };
 
+/** How long to wait before following the Match again after losing it. */
+const RECONNECT_MS = 2000;
+
+/** How long the page can be hidden before its socket is no longer trusted. */
+const STALE_MS = 5000;
+
 const root = document.querySelector<HTMLElement>("#match");
 /** The intervals counting down on screen; cleared on every new view. */
 let intervals: number[] = [];
@@ -72,33 +80,69 @@ let intervals: number[] = [];
 export function followMatch(matchId: string): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const device = deviceKeyFor(matchId);
-  const socket = new WebSocket(
-    `${protocol}//${location.host}/api/matches/${matchId}/ws?device=${device}`,
-  );
+  const url = `${protocol}//${location.host}/api/matches/${matchId}/ws?device=${device}`;
+  /** The socket following the Match; null while waiting to follow it again. */
+  let socket: WebSocket | null = null;
+  let retry = 0;
   const send: Send = (action) => {
-    socket.send(JSON.stringify(action));
+    socket?.send(JSON.stringify(action));
   };
 
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") return;
-    const message = parseServerMessage(event.data);
-    if (!message) return;
-    if (message.type === "rejected") {
-      showStatus(REJECTION_TEXTS[message.reason]);
-      return;
-    }
-    const view = message.state;
-    if (view.phase === "playing" && view.rematch !== null) {
-      moveTo(view.rematch, device);
-      return;
-    }
-    showStatus("");
-    render(view, send);
+  // A locked phone or a Wi-Fi blip closes the socket. Following the Match
+  // again with the same DeviceKey gives this Device its role back.
+  const connect = (): void => {
+    window.clearTimeout(retry);
+    const opened = new WebSocket(url);
+    socket = opened;
+    opened.addEventListener("message", (event) => {
+      receive(event, send, device);
+    });
+    opened.addEventListener("close", () => {
+      if (socket !== opened) return;
+      socket = null;
+      showStatus("Sin conexión. Reconectando…");
+      retry = window.setTimeout(connect, RECONNECT_MS);
+    });
+  };
+  // Back online: no need to wait for the next try.
+  window.addEventListener("online", () => {
+    if (socket === null) connect();
   });
+  // Back on screen: a socket left open while the phone was locked may be
+  // dead without having closed, so a long absence replaces it.
+  let hiddenAt: number | null = null;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      hiddenAt = Date.now();
+      return;
+    }
+    const hiddenMs = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+    hiddenAt = null;
+    if (socket && hiddenMs > STALE_MS) {
+      const stale = socket;
+      socket = null;
+      stale.close();
+    }
+    if (socket === null) connect();
+  });
+  connect();
+}
 
-  socket.addEventListener("close", () => {
-    showStatus("Desconectado. Recarga la página para volver.");
-  });
+function receive(event: MessageEvent, send: Send, device: DeviceKey): void {
+  if (typeof event.data !== "string") return;
+  const message = parseServerMessage(event.data);
+  if (!message) return;
+  if (message.type === "rejected") {
+    showStatus(REJECTION_TEXTS[message.reason]);
+    return;
+  }
+  const view = message.state;
+  if (view.phase === "playing" && view.rematch !== null) {
+    moveTo(view.rematch, device);
+    return;
+  }
+  showStatus("");
+  render(view, send);
 }
 
 /**
@@ -409,7 +453,10 @@ function ticking(
 function playing(view: PlayingView, send: Send): Node[] {
   const player = view.roles[view.turn];
   const playerName = playerNameOf(view, view.turn);
+  if (view.pause) return paused(view, view.pause);
   switch (view.stage) {
+    case "abandoned":
+      return abandoned();
     case "over":
       return over(view, send);
     case "handover":
@@ -535,6 +582,42 @@ function handover(view: PlayingView, nextName: string): Node[] {
       h("p", { className: "first" }, "Ahora juega ", h("strong", {}, nextName)),
     display,
   ].filter((node) => node !== null && node !== false);
+}
+
+/**
+ * A Device the Turn needs has dropped: who is missing, and how long until
+ * the Match is abandoned.
+ */
+function paused(
+  view: PlayingView,
+  pause: NonNullable<PlayingView["pause"]>,
+): Node[] {
+  const display = h("p", { className: "countdown" });
+  ticking(display, pause.abandonMs, (left) => String(Math.ceil(left / 1000)));
+  const missing = pause.missing.map((id) => nameOf(view, id)).join(" y ");
+  return [
+    h("h1", {}, "Partida en pausa"),
+    h("p", { className: "first" }, "Esperando a ", h("strong", {}, missing)),
+    h(
+      "p",
+      { className: "muted" },
+      "Si no vuelve a abrir la partida a tiempo, se abandona.",
+    ),
+    display,
+  ];
+}
+
+/** A Pause lasted too long: the Match is over, with no Results. */
+function abandoned(): Node[] {
+  stopCamera();
+  return [
+    h("h1", {}, "Partida abandonada"),
+    h(
+      "p",
+      { className: "muted" },
+      "Alguien necesario para el turno estuvo desconectado más de 60 segundos.",
+    ),
+  ];
 }
 
 /**

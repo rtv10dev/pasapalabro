@@ -3,6 +3,7 @@ import { generateRosco } from "../clues/generate";
 import {
   act,
   addRosco,
+  devicesChanged,
   missingRoscos,
   newMatch,
   nextChange,
@@ -138,7 +139,7 @@ export class Match extends DurableObject<Env> {
     if (at !== null) await this.ctx.storage.setAlarm(at);
   }
 
-  override fetch(request: Request): Response {
+  override async fetch(request: Request): Promise<Response> {
     const state = this.load();
     if (!state) return new Response("Partida no encontrada", { status: 404 });
     const device = parseDeviceKey(
@@ -151,8 +152,9 @@ export class Match extends DurableObject<Env> {
     const { 0: deviceEnd, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
     socket.serializeAttachment(device);
-    // Everyone sees this Device's Member connected, and it gets its first view.
-    this.broadcast(state, this.ctx.getWebSockets());
+    // Everyone sees this Device's Member connected, which may end a Pause,
+    // and it gets its first view.
+    await this.devicesChanged(state, this.ctx.getWebSockets());
     return new Response(null, { status: 101, webSocket: deviceEnd });
   }
 
@@ -210,32 +212,47 @@ export class Match extends DurableObject<Env> {
     });
   }
 
-  override webSocketClose(
+  override async webSocketClose(
     closed: WebSocket,
     code: number,
     reason: string,
-  ): void {
-    this.leave(closed);
+  ): Promise<void> {
     // The runtime doesn't answer the Device's close frame for us. A reserved
     // code can't be sent back, so the answer is a normal closure.
     closed.close(
       RESERVED_CLOSE_CODES.includes(code) ? NORMAL_CLOSURE : code,
       reason,
     );
+    await this.leave(closed);
   }
 
-  override webSocketError(failed: WebSocket): void {
-    this.leave(failed);
+  override async webSocketError(failed: WebSocket): Promise<void> {
+    await this.leave(failed);
   }
 
-  /** Tells the Devices still here that this one has gone. */
-  private leave(gone: WebSocket): void {
+  /** Tells the Devices still here that this one has gone, which may pause the Match. */
+  private async leave(gone: WebSocket): Promise<void> {
     const state = this.load();
     if (!state) return;
-    this.broadcast(
+    await this.devicesChanged(
       state,
       this.ctx.getWebSockets().filter((socket) => socket !== gone),
     );
+  }
+
+  /**
+   * Records that the given sockets are now the ones following the Match,
+   * and sends each its view.
+   */
+  private async devicesChanged(
+    state: MatchState,
+    sockets: WebSocket[],
+  ): Promise<void> {
+    const now = Date.now();
+    const next = devicesChanged(state, devicesOf(sockets), now);
+    this.save(next);
+    this.broadcast(next, sockets, now);
+    await this.wakeForNextChange(next);
   }
 
   /** Sends each of the given sockets its own view of the state. */

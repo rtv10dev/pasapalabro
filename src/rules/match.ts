@@ -54,6 +54,11 @@ export interface MatchState {
   } | null;
   /** The Rematch the Creator started once the Match was over; null until then. */
   rematch: MatchId | null;
+  /**
+   * The Members whose Device didn't have the Match open when the Devices
+   * following it last changed.
+   */
+  away: MemberId[];
 }
 
 /** The Turns of a Match. */
@@ -70,6 +75,13 @@ interface Play {
     /** The answer to the Clue just missed, if the Turn ended on a Miss. */
     revealed: Revealed | null;
   } | null;
+  /**
+   * When the Pause began, in epoch milliseconds; null outside one. While it
+   * lasts, neither the Clock nor the Handover moves.
+   */
+  pausedAt: number | null;
+  /** Whether a Pause lasted ABANDON_MS: then nothing changes the Match again. */
+  abandoned: boolean;
 }
 
 /** How far a Player has got through their Rosco. */
@@ -114,6 +126,9 @@ const COUNTDOWN_MS = 5000;
 /** How long a Handover between Turns lasts. */
 const HANDOVER_MS = 5000;
 
+/** How long a Pause lasts before the Match is abandoned. */
+const ABANDON_MS = 60_000;
+
 const graphemes = new Intl.Segmenter("es", { granularity: "grapheme" });
 
 /**
@@ -135,6 +150,7 @@ export function newMatch(settings: Settings, creator: Creator): Result {
       nextMemberId: id + 1,
       start: null,
       rematch: null,
+      away: [],
     },
   };
 }
@@ -225,8 +241,30 @@ export function rematch(
         play: null,
       },
       rematch: null,
+      away: [],
     },
   };
+}
+
+/**
+ * The Devices following the Match changed at `now`: `connected` are the
+ * ones that have it open. A Device the current Turn needs dropping pauses
+ * the Match; once they are all back, it goes on.
+ */
+export function devicesChanged(
+  stored: MatchState,
+  connected: ReadonlySet<DeviceKey>,
+  now: number,
+): MatchState {
+  const ticked = tick(stored, now);
+  const state = {
+    ...ticked,
+    away: ticked.members
+      .filter(({ device }) => !connected.has(device))
+      .map(({ id }) => id),
+  };
+  const play = state.start?.play;
+  return play ? inPlay(state, pauseOrResume(state, play, now)) : state;
 }
 
 /** What the given Device sees of the Match right now. */
@@ -268,22 +306,75 @@ export function viewFor(
 }
 
 /**
- * Applies what time alone changes, up to `now`: the countdown ending and
- * Handovers ending.
+ * Applies what time alone changes, up to `now`: the countdown ending,
+ * Clocks reaching zero, Handovers ending and Pauses running out.
  */
 export function tick(state: MatchState, now: number): MatchState {
   const { start } = state;
   if (!start || start.countdownEndsAt === null) return state;
   if (now < start.countdownEndsAt) return state;
-  let play = start.play ?? firstPlay(state, start.firstPlayer);
+  const play = advance(
+    state,
+    start.play ??
+      pauseOrResume(
+        state,
+        firstPlay(state, start.firstPlayer),
+        start.countdownEndsAt,
+      ),
+    now,
+  );
+  return play === start.play ? state : inPlay(state, play);
+}
+
+/** Applies to the Turns what time alone changes, up to `now`. */
+function advance(state: MatchState, play: Play, now: number): Play {
+  if (play.abandoned) return play;
+  if (play.pausedAt !== null) {
+    return now >= play.pausedAt + ABANDON_MS
+      ? { ...play, abandoned: true }
+      : play;
+  }
   if (play.runningSince !== null) {
     const clockOut = play.runningSince + play.progress[play.turn].clockMs;
-    if (now >= clockOut) play = endTurn(play, clockOut, null);
+    if (now >= clockOut) {
+      const ended = endTurn(play, clockOut, null);
+      return advance(state, pauseOrResume(state, ended, clockOut), now);
+    }
   }
   if (play.handover && now >= play.handover.endsAt) {
-    play = { ...play, handover: null };
+    return advance(state, { ...play, handover: null }, now);
   }
-  return play === start.play ? state : { ...state, start: { ...start, play } };
+  return play;
+}
+
+/**
+ * Pauses the Match at `now` if a Device its current Turn needs has dropped,
+ * or ends the Pause once they are all back: the Clock and any Handover then
+ * go on from where they stopped.
+ */
+function pauseOrResume(state: MatchState, play: Play, now: number): Play {
+  if (play.abandoned || isOver(play.progress)) return play;
+  if (missingFrom(state, play).length > 0) {
+    return play.pausedAt === null ? { ...play, pausedAt: now } : play;
+  }
+  if (play.pausedAt === null) return play;
+  const pauseMs = now - play.pausedAt;
+  return {
+    ...play,
+    pausedAt: null,
+    runningSince:
+      play.runningSince === null ? null : play.runningSince + pauseMs,
+    handover: play.handover && {
+      ...play.handover,
+      endsAt: play.handover.endsAt + pauseMs,
+    },
+  };
+}
+
+/** The Members the current Turn needs, the Player and their Host, whose Device has dropped. */
+function missingFrom(state: MatchState, play: Play): MemberId[] {
+  const needed = [state.roles[play.turn], hostOf(state, play.turn)];
+  return state.away.filter((id) => needed.includes(id));
 }
 
 /**
@@ -296,6 +387,8 @@ export function nextChange(state: MatchState): number | null {
   if (!start || start.countdownEndsAt === null) return null;
   const { play } = start;
   if (!play) return start.countdownEndsAt;
+  if (play.abandoned) return null;
+  if (play.pausedAt !== null) return play.pausedAt + ABANDON_MS;
   if (play.handover) return play.handover.endsAt;
   if (play.runningSince === null) return null;
   return play.runningSince + play.progress[play.turn].clockMs;
@@ -315,6 +408,8 @@ function firstPlay(state: MatchState, firstPlayer: PlayerRole): Play {
     },
     runningSince: null,
     handover: null,
+    pausedAt: null,
+    abandoned: false,
   };
 }
 
@@ -332,6 +427,8 @@ function playView(
     );
   const turnHost = hostOf(state, play.turn);
   const stage = stageOf(play);
+  // While paused, the Handover stands where it stopped.
+  const handoverAt = play.pausedAt ?? now;
   // The Clue and its answer reach no Device but the Host's, and only while
   // they read it out (ADR 0003): never the playing Player's.
   const clue =
@@ -344,7 +441,9 @@ function playView(
     turn: play.turn,
     turnHost,
     stage,
-    handoverMs: play.handover ? Math.max(0, play.handover.endsAt - now) : null,
+    handoverMs: play.handover
+      ? Math.max(0, play.handover.endsAt - handoverAt)
+      : null,
     roscos: { player1: rosco("player1"), player2: rosco("player2") },
     clue: clue
       ? {
@@ -354,6 +453,13 @@ function playView(
           answer: clue.answer,
         }
       : null,
+    pause:
+      play.pausedAt === null || play.abandoned
+        ? null
+        : {
+            missing: missingFrom(state, play),
+            abandonMs: Math.max(0, play.pausedAt + ABANDON_MS - now),
+          },
     revealed: play.handover?.revealed ?? null,
     results: stage === "over" ? results(state, play) : null,
     rematch: state.rematch,
@@ -361,6 +467,7 @@ function playView(
 }
 
 function stageOf(play: Play): TurnStage {
+  if (play.abandoned) return "abandoned";
   if (play.handover) return "handover";
   if (isOver(play.progress)) return "over";
   return play.runningSince === null ? "waiting" : "running";
@@ -409,11 +516,15 @@ function roscoView(
   };
 }
 
-/** What is left on the Player's Clock at `now`, counting the time it has been running. */
+/**
+ * What is left on the Player's Clock at `now`, counting the time it has been
+ * running: up to the start of the Pause, if there is one.
+ */
 function clockLeft(play: Play, role: PlayerRole, now: number): number {
   const { clockMs } = play.progress[role];
   if (role !== play.turn || play.runningSince === null) return clockMs;
-  return Math.max(0, clockMs - (now - play.runningSince));
+  const until = play.pausedAt ?? now;
+  return Math.max(0, clockMs - (until - play.runningSince));
 }
 
 /** The Host pressing Empezar turno: the playing Player's Clock starts at `now`. */
@@ -421,6 +532,8 @@ function beginTurn(state: MatchState, device: DeviceKey, now: number): Result {
   const { start } = state;
   if (!start) return { ok: false, reason: "not-started" };
   const { play } = start;
+  const held = play && heldBack(play);
+  if (held) return { ok: false, reason: held };
   if (
     !play ||
     play.runningSince !== null ||
@@ -443,6 +556,8 @@ function judge(
   now: number,
 ): Result {
   const play = state.start?.play;
+  const held = play && heldBack(play);
+  if (held) return { ok: false, reason: held };
   if (!play || play.runningSince === null) {
     return { ok: false, reason: "turn-not-running" };
   }
@@ -471,7 +586,16 @@ function judge(
     verdict === "miss" && clue
       ? { letter: clue.letter, answer: clue.answer }
       : null;
-  return withPlay(state, endTurn(next, now, revealed));
+  return withPlay(
+    state,
+    pauseOrResume(state, endTurn(next, now, revealed), now),
+  );
+}
+
+/** Why nobody can play on right now: the Match paused or abandoned; null if they can. */
+function heldBack(play: Play): Rejection | null {
+  if (play.abandoned) return "match-abandoned";
+  return play.pausedAt === null ? null : "match-paused";
 }
 
 /**
@@ -487,6 +611,7 @@ function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
   const progress = { ...play.progress, [play.turn]: stopped };
   const over = isOver(progress);
   return {
+    ...play,
     turn: over ? play.turn : otherPlayer(play.turn),
     progress,
     runningSince: null,
@@ -523,7 +648,12 @@ function nextPending(results: LetterResult[], from: number): number {
 
 function withPlay(state: MatchState, play: Play): Result {
   if (!state.start) return { ok: false, reason: "not-started" };
-  return { ok: true, state: { ...state, start: { ...state.start, play } } };
+  return { ok: true, state: inPlay(state, play) };
+}
+
+/** The Match with its Turns replaced; unchanged before Empezar. */
+function inPlay(state: MatchState, play: Play): MatchState {
+  return state.start ? { ...state, start: { ...state.start, play } } : state;
 }
 
 function isHostOfTurn(
