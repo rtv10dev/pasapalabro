@@ -8,6 +8,7 @@ export default defineConfig(
       "node_modules/",
       ".wrangler/",
       "public/app.js",
+      "public/chunks/",
       "worker-configuration.d.ts",
       "prototype-engines/",
     ],

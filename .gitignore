@@ -3,3 +3,4 @@ node_modules/
 .dev.vars
 public/app.js
 prototype-engines/
+public/chunks/

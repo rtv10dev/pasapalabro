@@ -19,6 +19,7 @@ import {
 import { LETTERS } from "../shared/rosco";
 import { deviceKeyFor } from "./device-key";
 import { h, showStatus } from "./dom";
+import { mirror, startCamera, stopCamera } from "./mirror";
 
 type Send = (action: Action) => void;
 
@@ -345,6 +346,8 @@ function readiness(
         {
           type: "button",
           onclick: () => {
+            // Asked now, so the camera prompt doesn't interrupt the Turn.
+            startCamera();
             send({ type: "ready" });
           },
         },
@@ -465,14 +468,29 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
   ].filter((node) => node !== null);
 }
 
-/** The playing Player's screen: their Rosco and Clock, never the Clue. */
+/**
+ * The playing Player's screen, the Mirror: their Rosco around their head on
+ * the front camera, with their Clock and count; never the Clue.
+ */
 function playerScreen(view: PlayingView): Node[] {
   const yours = view.roscos[view.turn];
   return [
-    h("h1", {}, view.stage === "waiting" ? "¡Te toca!" : "¡A jugar!"),
-    clock(view, view.turn),
-    rosco(yours),
-    tally(yours),
+    mirror(
+      rosco(yours),
+      h(
+        "div",
+        { className: "mirror-hud" },
+        clock(view, view.turn),
+        tally(yours),
+      ),
+      h(
+        "p",
+        { className: "mirror-prompt" },
+        view.stage === "waiting"
+          ? "¡Te toca!"
+          : h("strong", { className: "letter" }, yours.current ?? ""),
+      ),
+    ),
   ];
 }
 
@@ -503,6 +521,7 @@ function handover(view: PlayingView, nextName: string): Node[] {
 
 /** Both Players have finished. */
 function over(view: PlayingView): Node[] {
+  stopCamera();
   return [
     h("h1", {}, "¡Fin de la partida!"),
     ...PLAYER_ROLES.map((role) => {
@@ -533,7 +552,7 @@ function clockText(ms: number): string {
 }
 
 /** A Rosco's letters in a circle: Hits green, Misses red, the current one marked. */
-function rosco(view: RoscoView): Node {
+function rosco(view: RoscoView): HTMLElement {
   const ring = h(
     "div",
     { className: "rosco" },
