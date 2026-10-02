@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { LETTERS } from "./rosco";
 
 export const DIFFICULTIES = ["easy", "normal", "hard"] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
@@ -67,6 +68,10 @@ export type Role = (typeof ROLES)[number];
 const memberIdSchema = z.number();
 export type MemberId = z.infer<typeof memberIdSchema>;
 
+/** How the Host can judge an answer: Acierto, Fallo or Pasapalabra. */
+export const VERDICTS = ["hit", "miss", "pasapalabra"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
 /** An action a Device sends to its Match. */
 const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("join"), name: z.string() }),
@@ -79,6 +84,10 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("remove"), member: memberIdSchema }),
   /** A Player pressing ¡Listo! after Empezar. */
   z.object({ type: z.literal("ready") }),
+  /** The Host pressing Empezar turno: the playing Player's clock starts. */
+  z.object({ type: z.literal("begin-turn") }),
+  /** The Host judging the answer to the current Clue. */
+  z.object({ type: z.literal("judge"), verdict: z.enum(VERDICTS) }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -101,6 +110,9 @@ export const REJECTIONS = [
   "member-connected",
   "not-started",
   "not-player",
+  "not-host",
+  "turn-not-waiting",
+  "turn-not-running",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -128,6 +140,36 @@ const matchViewFields = {
   you: z.nullable(memberIdSchema),
 };
 
+const letterSchema = z.enum(LETTERS);
+
+/** Where a Rosco's letter stands: not answered yet, a Hit or a Miss. */
+export const LETTER_RESULTS = ["pending", "hit", "miss"] as const;
+export type LetterResult = (typeof LETTER_RESULTS)[number];
+
+const roscoViewSchema = z.object({
+  letters: z.array(
+    z.object({ letter: letterSchema, result: z.enum(LETTER_RESULTS) }),
+  ),
+  /** The letter the Player answers next; null once they have finished. */
+  current: z.nullable(letterSchema),
+  /** Milliseconds left on the Player's Clock, as of sending. */
+  clockMs: z.number(),
+  /** All letters answered or the Clock at zero. */
+  finished: z.boolean(),
+});
+export type RoscoView = z.infer<typeof roscoViewSchema>;
+
+/**
+ * Where the Turn stands: waiting for Empezar turno, the Clock running,
+ * the Handover to the next Turn, or both Players finished.
+ */
+export const TURN_STAGES = ["waiting", "running", "handover", "over"] as const;
+export type TurnStage = (typeof TURN_STAGES)[number];
+
+/** The answer to a Clue the Player has just missed. */
+const revealedSchema = z.object({ letter: letterSchema, answer: z.string() });
+export type Revealed = z.infer<typeof revealedSchema>;
+
 /** Everything a Device needs to render a Match; sent in full on every change. */
 const matchViewSchema = z.discriminatedUnion("phase", [
   z.object({
@@ -150,8 +192,36 @@ const matchViewSchema = z.discriminatedUnion("phase", [
      */
     countdownMs: z.nullable(z.number()),
   }),
+  z.object({
+    ...matchViewFields,
+    phase: z.literal("playing"),
+    /** The Player whose Turn it is, or comes next after the Handover. */
+    turn: z.enum(PLAYER_ROLES),
+    /** The Member who is Host of that Turn. */
+    turnHost: memberIdSchema,
+    stage: z.enum(TURN_STAGES),
+    /** Milliseconds left in the Handover, as of sending; null outside one. */
+    handoverMs: z.nullable(z.number()),
+    roscos: z.object({ player1: roscoViewSchema, player2: roscoViewSchema }),
+    /**
+     * The current Clue and its answer: only for the Host of the Turn, and
+     * only while the Turn is waiting or running. Null for everyone else.
+     */
+    clue: z.nullable(
+      z.object({
+        letter: letterSchema,
+        contains: z.boolean(),
+        text: z.string(),
+        answer: z.string(),
+      }),
+    ),
+    /** The answer to the Clue just missed, for every Device during the Handover. */
+    revealed: z.nullable(revealedSchema),
+  }),
 ]);
 export type MatchView = z.infer<typeof matchViewSchema>;
+/** A Match whose Turns are being played. */
+export type PlayingView = MatchView & { phase: "playing" };
 
 /** A message the Match sends to a Device. */
 const serverMessageSchema = z.discriminatedUnion("type", [

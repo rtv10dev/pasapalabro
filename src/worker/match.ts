@@ -5,6 +5,8 @@ import {
   addRosco,
   missingRoscos,
   newMatch,
+  nextChange,
+  tick,
   viewFor,
   type MatchState,
 } from "../rules/match";
@@ -60,14 +62,23 @@ export class Match extends DurableObject<Env> {
   }
 
   /**
-   * Generates the Roscos the Stock couldn't give, both at once so the
-   * Players wait for one generation, not two. Keeps any that succeed, and
-   * tries again a minute later while some are missing: the first Turn can't
-   * begin without them.
+   * Generates the Roscos the Stock couldn't give while any are missing;
+   * once they are all here, applies the change time has brought: the end of
+   * a countdown or Handover, or a Clock reaching zero.
    */
   override async alarm(): Promise<void> {
-    const before = this.load();
-    if (!before) return;
+    const state = this.load();
+    if (!state) return;
+    if (missingRoscos(state) > 0) await this.generateRoscos(state);
+    else await this.passTime(state);
+  }
+
+  /**
+   * Generates the missing Roscos, both at once so the Players wait for one
+   * generation, not two. Keeps any that succeed, and tries again a minute
+   * later while some are missing: the first Turn can't begin without them.
+   */
+  private async generateRoscos(before: MatchState): Promise<void> {
     const results = await Promise.allSettled(
       Array.from({ length: missingRoscos(before) }, () =>
         generateRosco(before.settings.difficulty, generation(this.env)),
@@ -84,7 +95,28 @@ export class Match extends DurableObject<Env> {
     this.broadcast(state, this.ctx.getWebSockets());
     if (missingRoscos(state) > 0) {
       await this.ctx.storage.setAlarm(Date.now() + GENERATION_RETRY_MS);
-    }
+    } else await this.wakeForNextChange(state);
+  }
+
+  private async passTime(state: MatchState): Promise<void> {
+    // An alarm only runs once its time has come, so the change it was set
+    // for is due even if this clock reads a moment earlier.
+    const now = Math.max(Date.now(), nextChange(state) ?? 0);
+    const next = tick(state, now);
+    this.save(next);
+    this.broadcast(next, this.ctx.getWebSockets(), now);
+    await this.wakeForNextChange(next);
+  }
+
+  /**
+   * Sets the alarm for the next change time alone makes, if any. Each stored
+   * change resets it, so an alarm left over from before is at worst early,
+   * and then changes nothing. While Roscos are missing there is no such
+   * change, so the generation's alarm is left alone.
+   */
+  private async wakeForNextChange(state: MatchState): Promise<void> {
+    const at = nextChange(state);
+    if (at !== null) await this.ctx.storage.setAlarm(at);
   }
 
   override fetch(request: Request): Response {
@@ -105,10 +137,10 @@ export class Match extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: deviceEnd });
   }
 
-  override webSocketMessage(
+  override async webSocketMessage(
     socket: WebSocket,
     data: string | ArrayBuffer,
-  ): void {
+  ): Promise<void> {
     const state = this.load();
     const device = deviceOf(socket);
     if (!state || !device) return;
@@ -130,6 +162,7 @@ export class Match extends DurableObject<Env> {
     }
     this.save(result.state);
     this.broadcast(result.state, sockets);
+    await this.wakeForNextChange(result.state);
   }
 
   override webSocketClose(
@@ -158,8 +191,12 @@ export class Match extends DurableObject<Env> {
   }
 
   /** Sends each of the given sockets its own view of the state. */
-  private broadcast(state: MatchState, sockets: WebSocket[]): void {
-    const at = { now: Date.now(), connected: devicesOf(sockets) };
+  private broadcast(
+    state: MatchState,
+    sockets: WebSocket[],
+    now = Date.now(),
+  ): void {
+    const at = { now, connected: devicesOf(sockets) };
     for (const socket of sockets) {
       const device = deviceOf(socket);
       if (device) {

@@ -79,6 +79,11 @@ The stretch of play in which a single Player answers with their clock running.
 _UI_: Turno
 _Avoid_: Round, go
 
+**Handover**:
+The short countdown between two Turns, during which a Miss's answer is shown on every Device and, in a Match that isn't Hosted, the Players swap who plays and who is Host.
+_UI_: Cambio de turno
+_Avoid_: Transition, pause, break
+
 **Hit**:
 An answer the Host judges correct; the Player keeps the Turn.
 _UI_: Acierto

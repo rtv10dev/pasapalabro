@@ -4,13 +4,18 @@ import {
   type Action,
   type Creator,
   type DeviceKey,
+  type LetterResult,
   type MatchView,
   type MemberId,
   type PlayerRole,
+  type PlayingView,
   type Rejection,
   type Role,
   type Roles,
+  type Revealed,
+  type RoscoView,
   type Settings,
+  type Verdict,
 } from "../shared/protocol";
 import type { Rosco } from "../shared/rosco";
 
@@ -41,7 +46,35 @@ export interface MatchState {
     ready: Record<PlayerRole, boolean>;
     /** In epoch milliseconds; null until both Players and both Roscos are ready. */
     countdownEndsAt: number | null;
+    /** The Turns, from the end of the countdown on; null until then. */
+    play: Play | null;
   } | null;
+}
+
+/** The Turns of a Match. */
+interface Play {
+  /** The Player whose Turn it is, or comes next after the Handover. */
+  turn: PlayerRole;
+  progress: Record<PlayerRole, Progress>;
+  /** When the playing Player's Clock started, in epoch milliseconds; null while it is stopped. */
+  runningSince: number | null;
+  /** Set during a Handover; null outside one. */
+  handover: {
+    /** In epoch milliseconds. */
+    endsAt: number;
+    /** The answer to the Clue just missed, if the Turn ended on a Miss. */
+    revealed: Revealed | null;
+  } | null;
+}
+
+/** How far a Player has got through their Rosco. */
+interface Progress {
+  /** One per letter of the Rosco, in its order. */
+  results: LetterResult[];
+  /** The index of the letter they answer next. */
+  current: number;
+  /** What was left on their Clock when it last stopped. */
+  clockMs: number;
 }
 
 export type Result =
@@ -62,6 +95,9 @@ const ROSCOS_PER_MATCH = 2;
 
 /** How long the countdown before the first Turn lasts. */
 const COUNTDOWN_MS = 5000;
+
+/** How long a Handover between Turns lasts. */
+const HANDOVER_MS = 5000;
 
 const graphemes = new Intl.Segmenter("es", { granularity: "grapheme" });
 
@@ -113,6 +149,12 @@ export function act(
   context: Context,
 ): Result {
   if (action.type === "ready") return ready(state, device, context.now);
+  if (action.type === "begin-turn") {
+    return beginTurn(tick(state, context.now), device, context.now);
+  }
+  if (action.type === "judge") {
+    return judge(tick(state, context.now), device, action.verdict, context.now);
+  }
   if (state.start) return { ok: false, reason: "already-started" };
   if (action.type === "join") return join(state, device, action.name);
   if (memberOf(state, device)?.id !== state.creator) {
@@ -130,10 +172,11 @@ export function act(
 
 /** What the given Device sees of the Match right now. */
 export function viewFor(
-  state: MatchState,
+  stored: MatchState,
   device: DeviceKey,
   { now, connected }: Pick<Context, "now" | "connected">,
 ): MatchView {
+  const state = tick(stored, now);
   const common = {
     settings: state.settings,
     members: state.members.map(({ id, name, device: key }) => ({
@@ -152,7 +195,8 @@ export function viewFor(
       canStart: whyNotStart(state, connected) === null,
     };
   }
-  const { firstPlayer, ready, countdownEndsAt } = state.start;
+  const { firstPlayer, ready, countdownEndsAt, play } = state.start;
+  if (play) return playView(state, play, common, now);
   return {
     ...common,
     phase: "started",
@@ -162,6 +206,259 @@ export function viewFor(
     countdownMs:
       countdownEndsAt === null ? null : Math.max(0, countdownEndsAt - now),
   };
+}
+
+/**
+ * Applies what time alone changes, up to `now`: the countdown ending and
+ * Handovers ending.
+ */
+export function tick(state: MatchState, now: number): MatchState {
+  const { start } = state;
+  if (!start || start.countdownEndsAt === null) return state;
+  if (now < start.countdownEndsAt) return state;
+  let play = start.play ?? firstPlay(state, start.firstPlayer);
+  if (play.runningSince !== null) {
+    const clockOut = play.runningSince + play.progress[play.turn].clockMs;
+    if (now >= clockOut) play = endTurn(play, clockOut, null);
+  }
+  if (play.handover && now >= play.handover.endsAt) {
+    play = { ...play, handover: null };
+  }
+  return play === start.play ? state : { ...state, start: { ...start, play } };
+}
+
+/**
+ * When time alone next changes the Match, in epoch milliseconds: the end of
+ * the countdown or of a Handover, or the running Clock reaching zero. Null
+ * if nothing will change until someone acts.
+ */
+export function nextChange(state: MatchState): number | null {
+  const start = state.start;
+  if (!start || start.countdownEndsAt === null) return null;
+  const { play } = start;
+  if (!play) return start.countdownEndsAt;
+  if (play.handover) return play.handover.endsAt;
+  if (play.runningSince === null) return null;
+  return play.runningSince + play.progress[play.turn].clockMs;
+}
+
+function firstPlay(state: MatchState, firstPlayer: PlayerRole): Play {
+  const fresh = (rosco: Rosco | undefined): Progress => ({
+    results: (rosco ?? []).map(() => "pending"),
+    current: 0,
+    clockMs: state.settings.clockSeconds * 1000,
+  });
+  return {
+    turn: firstPlayer,
+    progress: {
+      player1: fresh(state.roscos[roscoIndex("player1")]),
+      player2: fresh(state.roscos[roscoIndex("player2")]),
+    },
+    runningSince: null,
+    handover: null,
+  };
+}
+
+function playView(
+  state: MatchState,
+  play: Play,
+  common: Omit<MatchView, "phase" | "canStart">,
+  now: number,
+): PlayingView {
+  const rosco = (role: PlayerRole): RoscoView =>
+    roscoView(
+      state.roscos[roscoIndex(role)],
+      play.progress[role],
+      clockLeft(play, role, now),
+    );
+  const turnHost = hostOf(state, play.turn);
+  const stage = play.handover
+    ? "handover"
+    : isOver(play.progress)
+      ? "over"
+      : play.runningSince === null
+        ? "waiting"
+        : "running";
+  // The Clue and its answer reach no Device but the Host's, and only while
+  // they read it out (ADR 0003): never the playing Player's.
+  const clue =
+    common.you === turnHost && (stage === "waiting" || stage === "running")
+      ? state.roscos[roscoIndex(play.turn)]?.[play.progress[play.turn].current]
+      : undefined;
+  return {
+    ...common,
+    phase: "playing",
+    turn: play.turn,
+    turnHost,
+    stage,
+    handoverMs: play.handover ? Math.max(0, play.handover.endsAt - now) : null,
+    roscos: { player1: rosco("player1"), player2: rosco("player2") },
+    clue: clue
+      ? {
+          letter: clue.letter,
+          contains: clue.contains,
+          text: clue.text,
+          answer: clue.answer,
+        }
+      : null,
+    revealed: play.handover?.revealed ?? null,
+  };
+}
+
+function roscoView(
+  rosco: Rosco | undefined,
+  progress: Progress,
+  clockMs: number,
+): RoscoView {
+  const letters = (rosco ?? []).map((clue, index) => ({
+    letter: clue.letter,
+    result: progress.results[index] ?? "pending",
+  }));
+  const finished = isFinished({ ...progress, clockMs });
+  return {
+    letters,
+    current: finished ? null : (letters[progress.current]?.letter ?? null),
+    clockMs,
+    finished,
+  };
+}
+
+/** What is left on the Player's Clock at `now`, counting the time it has been running. */
+function clockLeft(play: Play, role: PlayerRole, now: number): number {
+  const { clockMs } = play.progress[role];
+  if (role !== play.turn || play.runningSince === null) return clockMs;
+  return Math.max(0, clockMs - (now - play.runningSince));
+}
+
+/** The Host pressing Empezar turno: the playing Player's Clock starts at `now`. */
+function beginTurn(state: MatchState, device: DeviceKey, now: number): Result {
+  const { start } = state;
+  if (!start) return { ok: false, reason: "not-started" };
+  const { play } = start;
+  if (
+    !play ||
+    play.runningSince !== null ||
+    play.handover ||
+    isOver(play.progress)
+  ) {
+    return { ok: false, reason: "turn-not-waiting" };
+  }
+  if (!isHostOfTurn(state, play, device)) {
+    return { ok: false, reason: "not-host" };
+  }
+  return withPlay(state, { ...play, runningSince: now });
+}
+
+/** The Host judging the answer to the current Clue at `now`. */
+function judge(
+  state: MatchState,
+  device: DeviceKey,
+  verdict: Verdict,
+  now: number,
+): Result {
+  const play = state.start?.play;
+  if (!play || play.runningSince === null) {
+    return { ok: false, reason: "turn-not-running" };
+  }
+  if (!isHostOfTurn(state, play, device)) {
+    return { ok: false, reason: "not-host" };
+  }
+  const progress = play.progress[play.turn];
+  const results = progress.results.map((result, index): LetterResult =>
+    index === progress.current && verdict !== "pasapalabra" ? verdict : result,
+  );
+  const answered = {
+    ...progress,
+    results,
+    current: nextPending(results, progress.current),
+  };
+  const next = {
+    ...play,
+    progress: { ...play.progress, [play.turn]: answered },
+  };
+  // Once the other Player has finished, nothing but finishing stops this one.
+  const playsOn =
+    verdict === "hit" || isFinished(play.progress[otherPlayer(play.turn)]);
+  if (playsOn && !isFinished(answered)) return withPlay(state, next);
+  const clue = state.roscos[roscoIndex(play.turn)]?.[progress.current];
+  const revealed =
+    verdict === "miss" && clue
+      ? { letter: clue.letter, answer: clue.answer }
+      : null;
+  return withPlay(state, endTurn(next, now, revealed));
+}
+
+/**
+ * Stops the playing Player's Clock at `now` and hands the Turn over to the
+ * other Player, unless both have finished: then the Match is over, after a
+ * Handover only if there is a Miss's answer to show.
+ */
+function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
+  const stopped = {
+    ...play.progress[play.turn],
+    clockMs: clockLeft(play, play.turn, now),
+  };
+  const progress = { ...play.progress, [play.turn]: stopped };
+  const over = isOver(progress);
+  return {
+    turn: over ? play.turn : otherPlayer(play.turn),
+    progress,
+    runningSince: null,
+    handover:
+      over && !revealed ? null : { endsAt: now + HANDOVER_MS, revealed },
+  };
+}
+
+function isOver(progress: Record<PlayerRole, Progress>): boolean {
+  return PLAYER_ROLES.every((role) => isFinished(progress[role]));
+}
+
+/** Whether the Player has answered every letter or run out of time. */
+function isFinished({ results, clockMs }: Progress): boolean {
+  return clockMs <= 0 || !results.includes("pending");
+}
+
+/** Which of the Match's Roscos is the Player's. */
+function roscoIndex(role: PlayerRole): number {
+  return role === "player1" ? 0 : 1;
+}
+
+/**
+ * The index of the next pending letter after `from`: on in order, then
+ * lapping back over the ones left; `from` itself if it is the only one.
+ */
+function nextPending(results: LetterResult[], from: number): number {
+  for (let step = 1; step <= results.length; step++) {
+    const index = (from + step) % results.length;
+    if (results[index] === "pending") return index;
+  }
+  return from;
+}
+
+function withPlay(state: MatchState, play: Play): Result {
+  if (!state.start) return { ok: false, reason: "not-started" };
+  return { ok: true, state: { ...state, start: { ...state.start, play } } };
+}
+
+function isHostOfTurn(
+  state: MatchState,
+  play: Play,
+  device: DeviceKey,
+): boolean {
+  return memberOf(state, device)?.id === hostOf(state, play.turn);
+}
+
+/** Who judges the given Player's Turn: the Host, or else the other Player. */
+function hostOf(state: MatchState, turn: PlayerRole): MemberId {
+  const host = state.settings.hosted
+    ? state.roles.host
+    : state.roles[otherPlayer(turn)];
+  // Empezar needs every role, and the Lobby closes with it.
+  return host ?? state.creator;
+}
+
+function otherPlayer(role: PlayerRole): PlayerRole {
+  return role === "player1" ? "player2" : "player1";
 }
 
 function join(state: MatchState, device: DeviceKey, typed: string): Result {
@@ -234,6 +531,7 @@ function start(state: MatchState, context: Context): Result {
         firstPlayer: context.random < 0.5 ? "player1" : "player2",
         ready: { player1: false, player2: false },
         countdownEndsAt: null,
+        play: null,
       },
     },
   };

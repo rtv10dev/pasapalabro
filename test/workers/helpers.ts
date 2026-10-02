@@ -1,3 +1,4 @@
+import { runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import {
   parseCreatedMatch,
@@ -176,4 +177,12 @@ export async function nextStateWhere(
   let view = await device.nextState();
   while (!matches(view)) view = await device.nextState();
   return view;
+}
+
+/**
+ * Runs the Match's alarm now, as if its time had come; false if none was set.
+ * Lets tests move past countdowns, Clocks and Handovers without waiting.
+ */
+export function fireAlarm(matchId: string): Promise<boolean> {
+  return runDurableObjectAlarm(env.MATCH.get(env.MATCH.idFromString(matchId)));
 }

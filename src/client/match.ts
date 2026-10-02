@@ -6,10 +6,14 @@ import {
   ROLES,
   type Action,
   type Difficulty,
+  type LetterResult,
   type MatchView,
   type MemberId,
+  type PlayerRole,
+  type PlayingView,
   type Rejection,
   type Role,
+  type RoscoView,
   type Settings,
 } from "../shared/protocol";
 import { LETTERS } from "../shared/rosco";
@@ -44,10 +48,20 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "member-connected": "Solo puedes quitar a quien se ha desconectado.",
   "not-started": "La partida aún no ha empezado.",
   "not-player": "Solo los jugadores pueden pulsar ¡Listo!.",
+  "not-host": "Solo el Presentador de este turno puede hacer eso.",
+  "turn-not-waiting": "El turno no está esperando a empezar.",
+  "turn-not-running": "El turno no está en marcha.",
+};
+
+const RESULT_LABELS: Record<LetterResult, string> = {
+  pending: "pendiente",
+  hit: "acierto",
+  miss: "fallo",
 };
 
 const root = document.querySelector<HTMLElement>("#match");
-let countdownInterval: number | undefined;
+/** The intervals counting down on screen; cleared on every new view. */
+let intervals: number[] = [];
 
 export function followMatch(matchId: string): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -77,10 +91,20 @@ export function followMatch(matchId: string): void {
 }
 
 function render(view: MatchView, send: Send): void {
-  window.clearInterval(countdownInterval);
-  root?.replaceChildren(
-    ...(view.phase === "lobby" ? lobby(view, send) : started(view, send)),
-  );
+  for (const interval of intervals) window.clearInterval(interval);
+  intervals = [];
+  root?.replaceChildren(...screen(view, send));
+}
+
+function screen(view: MatchView, send: Send): Node[] {
+  switch (view.phase) {
+    case "lobby":
+      return lobby(view, send);
+    case "started":
+      return started(view, send);
+    case "playing":
+      return playing(view, send);
+  }
 }
 
 function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
@@ -332,15 +356,213 @@ function readiness(
 /** Counts down to the first Turn; starts again from the time left on every new view. */
 function countdown(ms: number): Node {
   const display = h("p", { className: "countdown" });
+  ticking(display, ms, (left) => {
+    const seconds = Math.ceil(left / 1000);
+    return seconds > 0 ? String(seconds) : "¡A jugar!";
+  });
+  return display;
+}
+
+/**
+ * Shows `format(left)` in the element, counting `ms` down on this Device's
+ * own clock, until it reaches zero or the next view replaces it.
+ */
+function ticking(
+  element: HTMLElement,
+  ms: number,
+  format: (left: number) => string,
+): void {
   const endsAt = performance.now() + ms;
   const tick = (): void => {
-    const seconds = Math.ceil((endsAt - performance.now()) / 1000);
-    display.textContent = seconds > 0 ? String(seconds) : "¡A jugar!";
-    if (seconds <= 0) window.clearInterval(countdownInterval);
+    const left = Math.max(0, endsAt - performance.now());
+    element.textContent = format(left);
+    if (left === 0) window.clearInterval(interval);
   };
+  const interval = window.setInterval(tick, 200);
+  intervals.push(interval);
   tick();
-  countdownInterval = window.setInterval(tick, 200);
+}
+
+/** A Turn being played, as this Device's role in it sees it. */
+function playing(view: PlayingView, send: Send): Node[] {
+  const player = view.roles[view.turn];
+  const playerName =
+    player === null ? ROLE_LABELS[view.turn] : nameOf(view, player);
+  switch (view.stage) {
+    case "over":
+      return over(view);
+    case "handover":
+      return handover(view, playerName);
+    case "waiting":
+    case "running":
+      if (view.you === view.turnHost) return hostScreen(view, playerName, send);
+      if (view.you === player) return playerScreen(view);
+      if (PLAYER_ROLES.some((role) => view.roles[role] === view.you)) {
+        return [
+          h("h1", {}, "Espera tu turno"),
+          h("p", { className: "muted" }, `Ahora juega ${playerName}.`),
+        ];
+      }
+      return [
+        h("h1", {}, `Juega ${playerName}`),
+        rosco(view.roscos[view.turn]),
+      ];
+  }
+}
+
+/**
+ * The Host's screen: the Clue and its answer, the playing Player's Rosco and
+ * Clock, and the buttons that run the Turn.
+ */
+function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
+  const { clue } = view;
+  const button = (label: string, className: string, action: Action): Node =>
+    h(
+      "button",
+      {
+        type: "button",
+        className,
+        onclick: () => {
+          send(action);
+        },
+      },
+      label,
+    );
+  return [
+    h("p", { className: "muted" }, `Presentas el turno de ${playerName}`),
+    clock(view, view.turn),
+    clue &&
+      h(
+        "section",
+        { className: "clue stack" },
+        h(
+          "p",
+          { className: "rule" },
+          clue.contains ? "Contiene la " : "Empieza por ",
+          h("strong", { className: "letter" }, clue.letter),
+        ),
+        h("p", { className: "text" }, clue.text),
+        h(
+          "p",
+          { className: "answer" },
+          "Respuesta: ",
+          h("strong", {}, clue.answer),
+        ),
+      ),
+    view.stage === "waiting"
+      ? button("Empezar turno", "", { type: "begin-turn" })
+      : h(
+          "div",
+          { className: "verdicts" },
+          button("Acierto", "hit", { type: "judge", verdict: "hit" }),
+          button("Fallo", "miss", { type: "judge", verdict: "miss" }),
+          button("Pasapalabra", "pasapalabra", {
+            type: "judge",
+            verdict: "pasapalabra",
+          }),
+        ),
+    rosco(view.roscos[view.turn]),
+  ].filter((node) => node !== null);
+}
+
+/** The playing Player's screen: their Rosco and Clock, never the Clue. */
+function playerScreen(view: PlayingView): Node[] {
+  const yours = view.roscos[view.turn];
+  return [
+    h("h1", {}, view.stage === "waiting" ? "¡Te toca!" : "¡A jugar!"),
+    clock(view, view.turn),
+    rosco(yours),
+    tally(yours),
+  ];
+}
+
+/**
+ * Between Turns: the answer to the Clue just missed, and who plays next;
+ * or, after a Fallo that finished the Match, that answer before the end.
+ */
+function handover(view: PlayingView, nextName: string): Node[] {
+  const ending = PLAYER_ROLES.every((role) => view.roscos[role].finished);
+  const display = h("p", { className: "countdown" });
+  ticking(display, view.handoverMs ?? 0, (left) =>
+    String(Math.ceil(left / 1000)),
+  );
+  return [
+    h("h1", {}, ending ? "Último fallo" : "Cambio de turno"),
+    view.revealed &&
+      h(
+        "p",
+        { className: "answer" },
+        `La respuesta de la ${view.revealed.letter} era `,
+        h("strong", {}, view.revealed.answer),
+      ),
+    !ending &&
+      h("p", { className: "first" }, "Ahora juega ", h("strong", {}, nextName)),
+    display,
+  ].filter((node) => node !== null && node !== false);
+}
+
+/** Both Players have finished. */
+function over(view: PlayingView): Node[] {
+  return [
+    h("h1", {}, "¡Fin de la partida!"),
+    ...PLAYER_ROLES.map((role) => {
+      const member = view.roles[role];
+      return h(
+        "section",
+        { className: "stack" },
+        h("h2", {}, member === null ? ROLE_LABELS[role] : nameOf(view, member)),
+        tally(view.roscos[role]),
+      );
+    }),
+  ];
+}
+
+/** The Player's Clock, counting down on screen while it runs. */
+function clock(view: PlayingView, role: PlayerRole): Node {
+  const display = h("p", { className: "clock" });
+  const { clockMs } = view.roscos[role];
+  if (view.stage === "running" && role === view.turn) {
+    ticking(display, clockMs, clockText);
+  } else display.textContent = clockText(clockMs);
   return display;
+}
+
+function clockText(ms: number): string {
+  const seconds = Math.ceil(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** A Rosco's letters in a circle: Hits green, Misses red, the current one marked. */
+function rosco(view: RoscoView): Node {
+  const ring = h(
+    "div",
+    { className: "rosco" },
+    ...view.letters.map(({ letter, result }, index) => {
+      const current = letter === view.current ? " current" : "";
+      const span = h(
+        "span",
+        { className: `${result}${current}`, title: RESULT_LABELS[result] },
+        letter,
+      );
+      span.style.setProperty("--i", String(index));
+      return span;
+    }),
+  );
+  ring.style.setProperty("--n", String(view.letters.length));
+  return ring;
+}
+
+/** The count of Hits and Misses. */
+function tally(view: RoscoView): Node {
+  const count = (result: LetterResult): number =>
+    view.letters.filter((each) => each.result === result).length;
+  return h(
+    "p",
+    { className: "tally" },
+    h("span", { className: "hit" }, `${count("hit")} aciertos`),
+    " · ",
+    h("span", { className: "miss" }, `${count("miss")} fallos`),
+  );
 }
 
 function rolesOf(settings: Settings): readonly Role[] {

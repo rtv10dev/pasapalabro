@@ -7,6 +7,9 @@
   --muted: #5a6280;
   --line: #c9cfe0;
   --field: #ffffff;
+  --hit: #1e9e4a;
+  --miss: #d23a3a;
+  --pasapalabra: #c98a10;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -171,8 +174,9 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* The Rosco's letters in a circle, each lighting up in turn. */
-.loading-rosco {
+/* A Rosco's letters in a circle. */
+.loading-rosco,
+.rosco {
   --size: min(70vw, 15rem);
   --letter: 1.6rem;
   position: relative;
@@ -181,7 +185,13 @@ button:disabled {
   align-self: center;
 }
 
-.loading-rosco span {
+.rosco {
+  --size: min(84vw, 20rem);
+  --letter: 2rem;
+}
+
+.loading-rosco span,
+.rosco span {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -198,8 +208,92 @@ button:disabled {
   transform: rotate(calc(360deg * var(--i) / var(--n)))
     translateY(calc((var(--size) - var(--letter)) / -2))
     rotate(calc(-360deg * var(--i) / var(--n)));
+}
+
+/* Each letter lighting up in turn, while the Roscos are generated. */
+.loading-rosco span {
   animation: light-up 2.5s linear infinite;
   animation-delay: calc(2.5s * var(--i) / var(--n));
+}
+
+.rosco span {
+  font-size: 0.95rem;
+}
+
+.rosco .hit {
+  background: var(--hit);
+  color: #ffffff;
+}
+
+.rosco .miss {
+  background: var(--miss);
+  color: #ffffff;
+}
+
+.rosco .current {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.clock {
+  font-size: 3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.clue {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--field);
+  text-align: start;
+}
+
+.clue p {
+  margin: 0;
+}
+
+.clue .letter {
+  font-size: 1.5rem;
+}
+
+.clue .text {
+  font-size: 1.25rem;
+}
+
+.answer strong {
+  font-size: 1.25rem;
+}
+
+.verdicts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.verdicts .pasapalabra {
+  grid-column: 1 / -1;
+}
+
+button.hit {
+  background: var(--hit);
+}
+
+button.miss {
+  background: var(--miss);
+}
+
+button.pasapalabra {
+  background: var(--pasapalabra);
+}
+
+.tally .hit {
+  color: var(--hit);
+}
+
+.tally .miss {
+  color: var(--miss);
 }
 
 @keyframes light-up {
