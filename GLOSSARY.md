@@ -29,6 +29,11 @@ A person who plays a Rosco within a Match.
 _UI_: Jugador
 _Avoid_: Contestant, participant, user
 
+**Device**:
+A phone or browser following a Match; each person in the Match uses one, and every Device shows the same state.
+_UI_: Dispositivo
+_Avoid_: Client, connection, socket
+
 **Host**:
 The person who reads the Clues aloud and judges the answers during a Turn: the dedicated Host in a Hosted Match, otherwise the Player who is waiting.
 _UI_: Presentador
