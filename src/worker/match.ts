@@ -6,6 +6,7 @@ import {
   missingRoscos,
   newMatch,
   nextChange,
+  rematch,
   tick,
   viewFor,
   type MatchState,
@@ -55,15 +56,28 @@ export class Match extends DurableObject<Env> {
     const result = newMatch(settings, creator);
     // Only a Match that exists takes Roscos, so a refused one wastes none.
     if (!result.ok) return result.reason;
-    let state = result.state;
+    await this.setUp(result.state);
+    return null;
+  }
+
+  /**
+   * Sets the Match up as the Rematch of one that has ended; that Match calls
+   * it once, right after issuing the id.
+   */
+  async createRematch(state: MatchState): Promise<void> {
+    await this.setUp(state);
+  }
+
+  /** Takes the Match's Roscos from the Stock, and generates any it didn't have. */
+  private async setUp(created: MatchState): Promise<void> {
+    let state = created;
     const roscos = await stockOf(this.env).take(
-      settings.difficulty,
+      state.settings.difficulty,
       missingRoscos(state),
     );
     for (const rosco of roscos) state = addRosco(state, rosco, Date.now());
     this.save(state);
     if (missingRoscos(state) > 0) await this.ctx.storage.setAlarm(Date.now());
-    return null;
   }
 
   /**
@@ -154,6 +168,10 @@ export class Match extends DurableObject<Env> {
       send(socket, { type: "rejected", reason: "invalid-action" });
       return;
     }
+    if (action.type === "rematch") {
+      await this.startRematch(socket, device);
+      return;
+    }
 
     const sockets = this.ctx.getWebSockets();
     const result = act(state, device, action, {
@@ -168,6 +186,28 @@ export class Match extends DurableObject<Env> {
     this.save(result.state);
     this.broadcast(result.state, sockets);
     await this.wakeForNextChange(result.state);
+  }
+
+  /**
+   * Revancha: creates the Rematch, then points every Device to it. Nothing
+   * else reaches this Match meanwhile, so a second press is refused instead
+   * of creating a second Rematch.
+   */
+  private startRematch(socket: WebSocket, device: DeviceKey): Promise<void> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const state = this.load();
+      if (!state) return;
+      const id = this.env.MATCH.newUniqueId();
+      const result = rematch(state, device, id.toString(), Date.now());
+      if (!result.ok) {
+        send(socket, { type: "rejected", reason: result.reason });
+        return;
+      }
+      // Created before any Device is pointed to it, so none finds it missing.
+      await this.env.MATCH.get(id).createRematch(result.rematchState);
+      this.save(result.state);
+      this.broadcast(result.state, this.ctx.getWebSockets());
+    });
   }
 
   override webSocketClose(

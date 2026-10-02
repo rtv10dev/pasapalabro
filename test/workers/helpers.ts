@@ -7,6 +7,8 @@ import {
   type CreateMatchRequest,
   type DeviceKey,
   type MatchView,
+  type PlayerRole,
+  type PlayingView,
   type ServerMessage,
   type Settings,
 } from "../../src/shared/protocol";
@@ -60,10 +62,15 @@ export async function createMatch(
   settings: Settings = UNHOSTED,
   creatorName = "Ana",
 ): Promise<{ id: string; creator: DeviceKey }> {
+  await stockUp(settings);
+  return createMatchAsIs(settings, creatorName);
+}
+
+/** Puts two Roscos of the settings' Difficulty in the Stock: enough for one Match. */
+export async function stockUp(settings: Settings = UNHOSTED): Promise<void> {
   const stock = stockOf(env);
   await stock.add(settings.difficulty, ROSCO);
   await stock.add(settings.difficulty, ROSCO);
-  return createMatchAsIs(settings, creatorName);
 }
 
 /** Creates a Match through the API with the Stock as it is. */
@@ -89,6 +96,7 @@ export async function neverIssuedMatchId(): Promise<string> {
 }
 
 export interface Device {
+  key: DeviceKey;
   /** The next message this Device receives, in order. */
   nextMessage(): Promise<ServerMessage>;
   /** The next message, which must be a state. */
@@ -128,6 +136,7 @@ export async function connectDevice(
   });
 
   const device: Device = {
+    key,
     nextMessage() {
       const message = received.shift();
       if (message) return Promise.resolve(message);
@@ -185,4 +194,53 @@ export async function nextStateWhere(
  */
 export function fireAlarm(matchId: string): Promise<boolean> {
   return runDurableObjectAlarm(env.MATCH.get(env.MATCH.idFromString(matchId)));
+}
+
+export function isPlaying(view: MatchView): view is PlayingView {
+  return view.phase === "playing";
+}
+
+/** Waits for a playing state that matches. */
+export async function nextPlaying(
+  device: Device,
+  matches: (view: PlayingView) => boolean = () => true,
+): Promise<PlayingView> {
+  const view = await nextStateWhere(
+    device,
+    (each) => isPlaying(each) && matches(each),
+  );
+  if (!isPlaying(view)) throw new Error("Not playing");
+  return view;
+}
+
+/**
+ * A non-Hosted Match with Ana (the Creator) as Player 1 and Bea as Player 2,
+ * past its countdown: both pressed ¡Listo! and the countdown's alarm has run.
+ */
+export async function firstTurn(): Promise<{
+  id: string;
+  players: Record<PlayerRole, Device>;
+  first: PlayerRole;
+}> {
+  const { id, creator } = await createMatch();
+  const ana = await connectDevice(id, creator);
+  const { you: anaId } = await ana.nextState();
+  const bea = await join(id, "Bea");
+  ana.send({ type: "assign", role: "player1", member: anaId });
+  ana.send({ type: "assign", role: "player2", member: bea.id });
+  ana.send({ type: "start" });
+  const started = await nextStateWhere(ana, (view) => view.phase === "started");
+  if (started.phase !== "started") throw new Error("Not started");
+  ana.send({ type: "ready" });
+  bea.device.send({ type: "ready" });
+  await nextStateWhere(
+    ana,
+    (view) => view.phase === "started" && view.countdownMs !== null,
+  );
+  if (!(await fireAlarm(id))) throw new Error("No countdown alarm");
+  return {
+    id,
+    players: { player1: ana, player2: bea.device },
+    first: started.firstPlayer,
+  };
 }

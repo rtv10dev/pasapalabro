@@ -5,16 +5,19 @@ import {
   type Creator,
   type DeviceKey,
   type LetterResult,
+  type MatchId,
   type MatchView,
   type MemberId,
   type PlayerRole,
   type PlayingView,
   type Rejection,
+  type Results,
   type Role,
   type Roles,
   type Revealed,
   type RoscoView,
   type Settings,
+  type TurnStage,
   type Verdict,
 } from "../shared/protocol";
 import type { Rosco } from "../shared/rosco";
@@ -49,6 +52,8 @@ export interface MatchState {
     /** The Turns, from the end of the countdown on; null until then. */
     play: Play | null;
   } | null;
+  /** The Rematch the Creator started once the Match was over; null until then. */
+  rematch: MatchId | null;
 }
 
 /** The Turns of a Match. */
@@ -79,6 +84,16 @@ interface Progress {
 
 export type Result =
   { ok: true; state: MatchState } | { ok: false; reason: Rejection };
+
+/**
+ * The Actions `act` applies. Revancha is applied by `rematch` instead, since
+ * it also needs the id of the new Match.
+ */
+export type MatchAction = Exclude<Action, { type: "rematch" }>;
+
+export type RematchResult =
+  | { ok: true; state: MatchState; rematchState: MatchState }
+  | { ok: false; reason: Rejection };
 
 /** What the rules need from outside: time and randomness are passed in. */
 export interface Context {
@@ -119,6 +134,7 @@ export function newMatch(settings: Settings, creator: Creator): Result {
       roscos: [],
       nextMemberId: id + 1,
       start: null,
+      rematch: null,
     },
   };
 }
@@ -145,7 +161,7 @@ export function missingRoscos({ roscos }: MatchState): number {
 export function act(
   state: MatchState,
   device: DeviceKey,
-  action: Action,
+  action: MatchAction,
   context: Context,
 ): Result {
   if (action.type === "ready") return ready(state, device, context.now);
@@ -168,6 +184,49 @@ export function act(
     case "remove":
       return remove(state, action.member, context.connected);
   }
+}
+
+/**
+ * The Creator pressing Revancha at `now`, once the Match is over: the Match
+ * points every Device to the Rematch with the given id, which starts with the
+ * same settings, Members and roles, and the other Player first. The Rematch
+ * keeps nothing of this Match's play, and has no Roscos yet: they arrive
+ * through addRosco.
+ */
+export function rematch(
+  stored: MatchState,
+  device: DeviceKey,
+  id: MatchId,
+  now: number,
+): RematchResult {
+  const state = tick(stored, now);
+  const { start } = state;
+  if (memberOf(state, device)?.id !== state.creator) {
+    return { ok: false, reason: "not-creator" };
+  }
+  if (!start?.play || stageOf(start.play) !== "over") {
+    return { ok: false, reason: "match-not-over" };
+  }
+  if (state.rematch !== null) return { ok: false, reason: "already-rematched" };
+  return {
+    ok: true,
+    state: { ...state, rematch: id },
+    rematchState: {
+      settings: state.settings,
+      members: state.members,
+      creator: state.creator,
+      roles: state.roles,
+      roscos: [],
+      nextMemberId: state.nextMemberId,
+      start: {
+        firstPlayer: otherPlayer(start.firstPlayer),
+        ready: { player1: false, player2: false },
+        countdownEndsAt: null,
+        play: null,
+      },
+      rematch: null,
+    },
+  };
 }
 
 /** What the given Device sees of the Match right now. */
@@ -272,13 +331,7 @@ function playView(
       clockLeft(play, role, now),
     );
   const turnHost = hostOf(state, play.turn);
-  const stage = play.handover
-    ? "handover"
-    : isOver(play.progress)
-      ? "over"
-      : play.runningSince === null
-        ? "waiting"
-        : "running";
+  const stage = stageOf(play);
   // The Clue and its answer reach no Device but the Host's, and only while
   // they read it out (ADR 0003): never the playing Player's.
   const clue =
@@ -302,6 +355,39 @@ function playView(
         }
       : null,
     revealed: play.handover?.revealed ?? null,
+    results: stage === "over" ? results(state, play) : null,
+    rematch: state.rematch,
+  };
+}
+
+function stageOf(play: Play): TurnStage {
+  if (play.handover) return "handover";
+  if (isOver(play.progress)) return "over";
+  return play.runningSince === null ? "waiting" : "running";
+}
+
+/**
+ * How the Match ended: most Hits wins; on a tie, fewest Misses; otherwise
+ * a draw. Every Clue is shown with its answer.
+ */
+function results(state: MatchState, play: Play): Results {
+  const count = (role: PlayerRole, result: LetterResult): number =>
+    play.progress[role].results.filter((each) => each === result).length;
+  // Positive when Player 1 is ahead: on Hits, then on Misses.
+  const lead =
+    count("player1", "hit") - count("player2", "hit") ||
+    count("player2", "miss") - count("player1", "miss");
+  const clues = (role: PlayerRole): Results["clues"][PlayerRole] =>
+    (state.roscos[roscoIndex(role)] ?? []).map((clue, index) => ({
+      letter: clue.letter,
+      contains: clue.contains,
+      text: clue.text,
+      answer: clue.answer,
+      result: play.progress[role].results[index] ?? "pending",
+    }));
+  return {
+    winner: lead > 0 ? "player1" : lead < 0 ? "player2" : null,
+    clues: { player1: clues("player1"), player2: clues("player2") },
   };
 }
 

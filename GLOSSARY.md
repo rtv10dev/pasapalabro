@@ -29,6 +29,11 @@ The stage of a Match before it starts, where Members join and the Creator assign
 _UI_: Sala de espera
 _Avoid_: Waiting room, setup screen
 
+**Results**:
+How a Match ended, shown on every Device once both Players have finished: each Player's Hits and Misses, every Clue with its answer, and the winner: the Player with most Hits, or on equal Hits the one with fewest Misses; otherwise a draw.
+_UI_: Resultados (¡Gana …! / ¡Empate!)
+_Avoid_: Score, scoreboard, leaderboard
+
 **Rematch**:
 A new Match with the same settings and the same people as one that just ended.
 _UI_: Revancha

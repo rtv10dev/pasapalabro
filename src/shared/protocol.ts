@@ -51,8 +51,12 @@ export function parseCreateMatchRequest(
   return parseWith(createMatchRequestSchema, body);
 }
 
+/** A Match's id, as it appears in its link. */
+const matchIdSchema = z.string();
+export type MatchId = z.infer<typeof matchIdSchema>;
+
 /** The response body of `POST /api/matches`. */
-const createdMatchSchema = z.object({ id: z.string() });
+const createdMatchSchema = z.object({ id: matchIdSchema });
 export type CreatedMatch = z.infer<typeof createdMatchSchema>;
 
 /** Validates the response body of `POST /api/matches`; null if it isn't one. */
@@ -88,6 +92,8 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("begin-turn") }),
   /** The Host judging the answer to the current Clue. */
   z.object({ type: z.literal("judge"), verdict: z.enum(VERDICTS) }),
+  /** The Creator pressing Revancha once the Match is over. */
+  z.object({ type: z.literal("rematch") }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -113,6 +119,8 @@ export const REJECTIONS = [
   "not-host",
   "turn-not-waiting",
   "turn-not-running",
+  "match-not-over",
+  "already-rematched",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -170,6 +178,26 @@ export type TurnStage = (typeof TURN_STAGES)[number];
 const revealedSchema = z.object({ letter: letterSchema, answer: z.string() });
 export type Revealed = z.infer<typeof revealedSchema>;
 
+/** A Clue of a Rosco with its answer, and how the Player did on it. */
+const answeredClueSchema = z.object({
+  letter: letterSchema,
+  contains: z.boolean(),
+  text: z.string(),
+  answer: z.string(),
+  result: z.enum(LETTER_RESULTS),
+});
+
+/** How a Match ended: who won, and every Clue of both Roscos with its answer. */
+const resultsSchema = z.object({
+  /** The Player with most Hits, or on a tie fewest Misses; null for a draw. */
+  winner: z.nullable(z.enum(PLAYER_ROLES)),
+  clues: z.object({
+    player1: z.array(answeredClueSchema),
+    player2: z.array(answeredClueSchema),
+  }),
+});
+export type Results = z.infer<typeof resultsSchema>;
+
 /** Everything a Device needs to render a Match; sent in full on every change. */
 const matchViewSchema = z.discriminatedUnion("phase", [
   z.object({
@@ -217,6 +245,10 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     ),
     /** The answer to the Clue just missed, for every Device during the Handover. */
     revealed: z.nullable(revealedSchema),
+    /** How the Match ended, for every Device once it is over; null until then. */
+    results: z.nullable(resultsSchema),
+    /** The Rematch every Device moves to, once the Creator presses Revancha. */
+    rematch: z.nullable(matchIdSchema),
   }),
 ]);
 export type MatchView = z.infer<typeof matchViewSchema>;

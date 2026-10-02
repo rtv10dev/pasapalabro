@@ -5,19 +5,22 @@ import {
   PLAYER_ROLES,
   ROLES,
   type Action,
+  type DeviceKey,
   type Difficulty,
   type LetterResult,
+  type MatchId,
   type MatchView,
   type MemberId,
   type PlayerRole,
   type PlayingView,
   type Rejection,
+  type Results,
   type Role,
   type RoscoView,
   type Settings,
 } from "../shared/protocol";
 import { LETTERS } from "../shared/rosco";
-import { deviceKeyFor } from "./device-key";
+import { deviceKeyFor, rememberDeviceKey } from "./device-key";
 import { h, showStatus } from "./dom";
 import { mirror, startCamera, stopCamera } from "./mirror";
 
@@ -52,6 +55,8 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "not-host": "Solo el Presentador de este turno puede hacer eso.",
   "turn-not-waiting": "El turno no está esperando a empezar.",
   "turn-not-running": "El turno no está en marcha.",
+  "match-not-over": "La partida aún no ha terminado.",
+  "already-rematched": "La revancha ya ha empezado.",
 };
 
 const RESULT_LABELS: Record<LetterResult, string> = {
@@ -82,13 +87,27 @@ export function followMatch(matchId: string): void {
       showStatus(REJECTION_TEXTS[message.reason]);
       return;
     }
+    const view = message.state;
+    if (view.phase === "playing" && view.rematch !== null) {
+      moveTo(view.rematch, device);
+      return;
+    }
     showStatus("");
-    render(message.state, send);
+    render(view, send);
   });
 
   socket.addEventListener("close", () => {
     showStatus("Desconectado. Recarga la página para volver.");
   });
+}
+
+/**
+ * Follows the Rematch instead: this Device is already one of its Members
+ * under the same key, so nobody joins again.
+ */
+function moveTo(rematch: MatchId, device: DeviceKey): void {
+  rememberDeviceKey(rematch, device);
+  location.replace(`/m/${rematch}`);
 }
 
 function render(view: MatchView, send: Send): void {
@@ -389,11 +408,10 @@ function ticking(
 /** A Turn being played, as this Device's role in it sees it. */
 function playing(view: PlayingView, send: Send): Node[] {
   const player = view.roles[view.turn];
-  const playerName =
-    player === null ? ROLE_LABELS[view.turn] : nameOf(view, player);
+  const playerName = playerNameOf(view, view.turn);
   switch (view.stage) {
     case "over":
-      return over(view);
+      return over(view, send);
     case "handover":
       return handover(view, playerName);
     case "waiting":
@@ -519,21 +537,71 @@ function handover(view: PlayingView, nextName: string): Node[] {
   ].filter((node) => node !== null && node !== false);
 }
 
-/** Both Players have finished. */
-function over(view: PlayingView): Node[] {
+/**
+ * Both Players have finished: the winner, each Player's Hits and Misses and
+ * every Clue with its answer, and Revancha for the Creator.
+ */
+function over(view: PlayingView, send: Send): Node[] {
   stopCamera();
+  const { results } = view;
   return [
     h("h1", {}, "¡Fin de la partida!"),
-    ...PLAYER_ROLES.map((role) => {
-      const member = view.roles[role];
-      return h(
+    results &&
+      h(
+        "p",
+        { className: "first" },
+        results.winner === null
+          ? "¡Empate!"
+          : h("strong", {}, `¡Gana ${playerNameOf(view, results.winner)}!`),
+      ),
+    view.you === view.creator
+      ? h(
+          "button",
+          {
+            type: "button",
+            onclick: () => {
+              send({ type: "rematch" });
+            },
+          },
+          "Revancha",
+        )
+      : h(
+          "p",
+          { className: "muted" },
+          `${nameOf(view, view.creator)} puede pedir la revancha.`,
+        ),
+    ...PLAYER_ROLES.map((role) =>
+      h(
         "section",
         { className: "stack" },
-        h("h2", {}, member === null ? ROLE_LABELS[role] : nameOf(view, member)),
+        h("h2", {}, playerNameOf(view, role)),
         tally(view.roscos[role]),
-      );
-    }),
-  ];
+        results && answers(results.clues[role]),
+      ),
+    ),
+  ].filter((node) => node !== null);
+}
+
+/** Every Clue of a Rosco with its answer, coloured by how the Player did. */
+function answers(clues: Results["clues"][PlayerRole]): Node {
+  return h(
+    "ol",
+    { className: "answers" },
+    ...clues.map((clue) =>
+      h(
+        "li",
+        { className: clue.result, title: RESULT_LABELS[clue.result] },
+        h("strong", { className: "letter" }, clue.letter),
+        h(
+          "span",
+          {},
+          clue.contains ? "Contiene la " : "Empieza por ",
+          `${clue.letter}: ${clue.text} `,
+          h("strong", {}, clue.answer),
+        ),
+      ),
+    ),
+  );
 }
 
 /** The Player's Clock, counting down on screen while it runs. */
@@ -598,6 +666,12 @@ function settingsSummary({
     `${clockSeconds / 60} min por jugador`,
     hosted ? "con Presentador" : "sin Presentador",
   ].join(" · ");
+}
+
+/** The name of the Member playing the role, or the role's label if nobody is. */
+function playerNameOf(view: MatchView, role: PlayerRole): string {
+  const member = view.roles[role];
+  return member === null ? ROLE_LABELS[role] : nameOf(view, member);
 }
 
 function nameOf(view: MatchView, id: MemberId): string {

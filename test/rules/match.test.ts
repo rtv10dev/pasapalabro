@@ -2,16 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   act,
   addRosco,
+  missingRoscos,
   newMatch,
   nextChange,
+  rematch,
   tick,
   viewFor,
   type Context,
+  type MatchAction,
   type MatchState,
 } from "../../src/rules/match";
 import {
   ROLES,
-  type Action,
   type DeviceKey,
   type MatchView,
   type Role,
@@ -63,7 +65,7 @@ function created(
 function accepted(
   state: MatchState,
   device: DeviceKey,
-  action: Action,
+  action: MatchAction,
   context: Context = CONTEXT,
 ): MatchState {
   const result = act(state, device, action, context);
@@ -75,7 +77,7 @@ function accepted(
 function rejection(
   state: MatchState,
   device: DeviceKey,
-  action: Action,
+  action: MatchAction,
   context: Context = CONTEXT,
 ): string {
   const result = act(state, device, action, context);
@@ -1169,5 +1171,210 @@ describe("the next change time alone makes", () => {
 
     expect(nextChange(over)).toBeNull();
     expect(nextChange(playersAssigned())).toBeNull();
+  });
+});
+
+/**
+ * A Match played out from `playing()`: one list of verdicts per Turn, in
+ * order. Each Turn is begun by its Host one second after it is ready to
+ * begin; if the verdicts leave it running, it runs until the Clock reaches
+ * zero. Returns the state and the time once the last Turn has ended.
+ */
+function playedOut(
+  turns: Verdict[][],
+  settings: Settings = UNHOSTED,
+): { state: MatchState; now: number } {
+  let state = tick(playing(settings), PLAY_STARTS);
+  let now = PLAY_STARTS;
+  for (const turn of turns) {
+    const host = deviceOf(state, playingView(state, ANA, now).turnHost);
+    state = accepted(state, host, { type: "begin-turn" }, at(++now));
+    state = verdicts(state, host, turn, ++now);
+    now += turn.length * 1000;
+    for (
+      let next = nextChange(state);
+      next !== null;
+      next = nextChange(state)
+    ) {
+      now = Math.max(now, next);
+      state = tick(state, now);
+    }
+  }
+  return { state, now };
+}
+
+function deviceOf(state: MatchState, id: number): DeviceKey {
+  const device = [ANA, BEA, CARLOS].find((each) => idOf(state, each) === id);
+  if (!device) throw new Error(`No Device for Member ${id}`);
+  return device;
+}
+
+describe("the results", () => {
+  it("give the win to the Player with most Hits", () => {
+    const { state, now } = playedOut([
+      ["hit", "hit", "miss"],
+      ["hit", "miss"],
+      [],
+      [],
+    ]);
+
+    const view = playingView(state, CARLOS, now);
+    expect(view.stage).toBe("over");
+    expect(view.results?.winner).toBe("player1");
+  });
+
+  it("break a tie on Hits by fewest Misses", () => {
+    // Bea runs out of time with 1 Hit and no Misses; Ana then does too, with a Miss.
+    const { state, now } = playedOut([["hit", "miss"], ["hit"], []]);
+
+    expect(playingView(state, CARLOS, now).results?.winner).toBe("player2");
+  });
+
+  it("are a draw on equal Hits and Misses", () => {
+    const { state, now } = playedOut([
+      ["hit", "miss"],
+      ["hit", "miss"],
+      [],
+      [],
+    ]);
+
+    expect(playingView(state, CARLOS, now).results).toMatchObject({
+      winner: null,
+    });
+  });
+
+  it("show every Device each Clue with its answer and result", () => {
+    const { state, now } = playedOut([
+      ["hit", "miss"],
+      ["pasapalabra"],
+      [],
+      [],
+    ]);
+
+    for (const device of [ANA, BEA, CARLOS]) {
+      const { results } = playingView(state, device, now);
+      expect(results?.clues.player1.slice(0, 3)).toEqual([
+        {
+          letter: "A",
+          contains: false,
+          text: "Definición de la A",
+          answer: "Arespuesta",
+          result: "hit",
+        },
+        {
+          letter: "B",
+          contains: false,
+          text: "Definición de la B",
+          answer: "Brespuesta",
+          result: "miss",
+        },
+        {
+          letter: "C",
+          contains: false,
+          text: "Definición de la C",
+          answer: "Crespuesta",
+          result: "pending",
+        },
+      ]);
+      expect(results?.clues.player2).toHaveLength(25);
+    }
+  });
+
+  it("aren't there until both Players have finished", () => {
+    const { state, now } = playedOut([["hit", "miss"], ["hit"]]);
+
+    const view = playingView(state, ANA, now);
+    expect(view.stage).toBe("waiting");
+    expect(view.results).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("Arespuesta");
+  });
+});
+
+/** A Match played to its end, Ana having played first. */
+function over(settings: Settings = UNHOSTED): {
+  state: MatchState;
+  now: number;
+} {
+  return playedOut([["hit", "miss"], ["hit", "miss"], [], []], settings);
+}
+
+/** Has the Creator press Revancha once `over()` has ended; must be accepted. */
+function rematched(settings: Settings = UNHOSTED): {
+  before: MatchState;
+  state: MatchState;
+  rematchState: MatchState;
+} {
+  const { state: before, now } = over(settings);
+  const result = rematch(before, ANA, "next", now);
+  if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
+  return { before, ...result };
+}
+
+describe("Revancha", () => {
+  it("points every Device of the Match to the new one", () => {
+    const { state } = rematched();
+
+    for (const device of [ANA, BEA, CARLOS]) {
+      expect(viewFor(state, device, CONTEXT)).toMatchObject({
+        phase: "playing",
+        rematch: "next",
+      });
+    }
+  });
+
+  it("starts a new Match with the same settings, people and roles, the other Player first", () => {
+    const { before, rematchState: next } = rematched(HOSTED);
+
+    const previous = viewFor(before, BEA, CONTEXT);
+    expect(viewFor(next, BEA, CONTEXT)).toEqual({
+      phase: "started",
+      settings: HOSTED,
+      members: previous.members,
+      creator: previous.creator,
+      roles: previous.roles,
+      you: previous.you,
+      firstPlayer: "player2",
+      ready: { player1: false, player2: false },
+      roscosReady: false,
+      countdownMs: null,
+    });
+  });
+
+  it("gives the new Match two new Roscos to play, and nothing of the old one's play", () => {
+    const { rematchState: next } = rematched();
+    expect(missingRoscos(next)).toBe(2);
+
+    const withRoscos = addRosco(addRosco(next, ROSCO, NOW), ROSCO, NOW);
+    const ready = accepted(accepted(withRoscos, ANA, { type: "ready" }), BEA, {
+      type: "ready",
+    });
+    const view = playingView(ready, ANA, PLAY_STARTS);
+    expect(view).toMatchObject({ turn: "player2", stage: "waiting" });
+    expect(resultsOf(view, "player1")).toBe(".........................");
+    expect(view.roscos.player2.clockMs).toBe(180_000);
+  });
+
+  it("is only for the Creator", () => {
+    const { state, now } = over();
+    expect(rematch(state, BEA, "next", now)).toEqual({
+      ok: false,
+      reason: "not-creator",
+    });
+  });
+
+  it("waits for the Match to be over", () => {
+    const { state, now } = playedOut([["hit", "miss"]]);
+    expect(rematch(state, ANA, "next", now)).toEqual({
+      ok: false,
+      reason: "match-not-over",
+    });
+  });
+
+  it("happens once", () => {
+    const { state } = rematched();
+    expect(rematch(state, ANA, "another", NOW)).toEqual({
+      ok: false,
+      reason: "already-rematched",
+    });
   });
 });

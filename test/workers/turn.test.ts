@@ -1,68 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type {
-  MatchView,
-  PlayerRole,
-  PlayingView,
-} from "../../src/shared/protocol";
+import type { MatchView, PlayerRole } from "../../src/shared/protocol";
 import {
-  connectDevice,
-  createMatch,
   fireAlarm,
-  join,
-  nextStateWhere,
+  firstTurn as firstTurnOf,
+  isPlaying,
+  nextPlaying,
   type Device,
 } from "./helpers";
 
-function isPlaying(view: MatchView): view is PlayingView {
-  return view.phase === "playing";
-}
-
-/** Waits for a playing state that matches. */
-async function nextPlaying(
-  device: Device,
-  matches: (view: PlayingView) => boolean = () => true,
-): Promise<PlayingView> {
-  const view = await nextStateWhere(
-    device,
-    (each) => isPlaying(each) && matches(each),
-  );
-  if (!isPlaying(view)) throw new Error("Not playing");
-  return view;
-}
-
-/**
- * A non-Hosted Match with Ana and Bea as Players, past its countdown: both
- * pressed ¡Listo! and the countdown's alarm has run. Returns their Devices by
- * role in the first Turn.
- */
+/** `firstTurn()`, with the Devices by role in the first Turn. */
 async function firstTurn(): Promise<{
   id: string;
   player: Device;
   host: Device;
   first: PlayerRole;
 }> {
-  const { id, creator } = await createMatch();
-  const ana = await connectDevice(id, creator);
-  const { you: anaId } = await ana.nextState();
-  const bea = await join(id, "Bea");
-  ana.send({ type: "assign", role: "player1", member: anaId });
-  ana.send({ type: "assign", role: "player2", member: bea.id });
-  ana.send({ type: "start" });
-  const started = await nextStateWhere(ana, (view) => view.phase === "started");
-  if (started.phase !== "started") throw new Error("Not started");
-  ana.send({ type: "ready" });
-  bea.device.send({ type: "ready" });
-  await nextStateWhere(
-    ana,
-    (view) => view.phase === "started" && view.countdownMs !== null,
-  );
-
-  expect(await fireAlarm(id)).toBe(true);
-
-  const first = started.firstPlayer;
-  const [player, host] =
-    first === "player1" ? [ana, bea.device] : [bea.device, ana];
-  return { id, player, host, first };
+  const { id, players, first } = await firstTurnOf();
+  const second = first === "player1" ? "player2" : "player1";
+  return { id, player: players[first], host: players[second], first };
 }
 
 describe("the Turns of a Match", () => {
