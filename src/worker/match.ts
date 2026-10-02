@@ -1,5 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
-import { act, newMatch, viewFor, type MatchState } from "../rules/match";
+import { generateRosco } from "../clues/generate";
+import {
+  act,
+  addRosco,
+  missingRoscos,
+  newMatch,
+  viewFor,
+  type MatchState,
+} from "../rules/match";
 import {
   parseAction,
   parseDeviceKey,
@@ -9,12 +17,17 @@ import {
   type ServerMessage,
   type Settings,
 } from "../shared/protocol";
+import { generation } from "./providers";
+import { stockOf } from "./stock";
 
 // WebSocket close codes (RFC 6455, section 7.4.1).
 const NORMAL_CLOSURE = 1000;
 const NO_STATUS_RECEIVED = 1005;
 
 const STATE_KEY = "state";
+
+/** How long to wait before generating a Match's Roscos again when every model failed. */
+const GENERATION_RETRY_MS = 60_000;
 
 /**
  * One Match: owns its state and the WebSockets of the Devices following it
@@ -24,12 +37,53 @@ const STATE_KEY = "state";
  * stores state, validates messages and broadcasts.
  */
 export class Match extends DurableObject<Env> {
-  /** Sets the Match up; the Worker calls it once, right after issuing the id. */
-  create(settings: Settings, creator: Creator): Rejection | null {
+  /**
+   * Sets the Match up; the Worker calls it once, right after issuing the id.
+   * Takes its Roscos from the Stock, and generates any the Stock didn't have.
+   */
+  async create(
+    settings: Settings,
+    creator: Creator,
+  ): Promise<Rejection | null> {
     const result = newMatch(settings, creator);
+    // Only a Match that exists takes Roscos, so a refused one wastes none.
     if (!result.ok) return result.reason;
-    this.save(result.state);
+    let state = result.state;
+    const roscos = await stockOf(this.env).take(
+      settings.difficulty,
+      missingRoscos(state),
+    );
+    for (const rosco of roscos) state = addRosco(state, rosco);
+    this.save(state);
+    if (missingRoscos(state) > 0) await this.ctx.storage.setAlarm(Date.now());
     return null;
+  }
+
+  /**
+   * Generates the Roscos the Stock couldn't give, both at once so the Lobby
+   * waits for one generation, not two. Keeps any that succeed, and tries
+   * again a minute later while some are missing: the Lobby can't start
+   * without them.
+   */
+  override async alarm(): Promise<void> {
+    const before = this.load();
+    if (!before) return;
+    const results = await Promise.allSettled(
+      Array.from({ length: missingRoscos(before) }, () =>
+        generateRosco(before.settings.difficulty, generation(this.env)),
+      ),
+    );
+    // Members may have joined while the Roscos were being generated.
+    let state = this.load() ?? before;
+    for (const result of results) {
+      if (result.status === "fulfilled") state = addRosco(state, result.value);
+      else console.error("Couldn't generate a Rosco", result.reason);
+    }
+    this.save(state);
+    this.broadcast(state, this.ctx.getWebSockets());
+    if (missingRoscos(state) > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + GENERATION_RETRY_MS);
+    }
   }
 
   override fetch(request: Request): Response {

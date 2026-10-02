@@ -1,6 +1,10 @@
+import { generateRosco } from "../clues/generate";
 import { parseCreateMatchRequest } from "../shared/protocol";
+import { generation } from "./providers";
+import { stockOf } from "./stock";
 
 export { Match } from "./match";
+export { Stock } from "./stock";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -30,6 +34,21 @@ export default {
     }
 
     return notFound();
+  },
+
+  /**
+   * The Cron Trigger: tops the Stock up by one Rosco, for the Difficulty that
+   * needs it most. One per run keeps each run short and spreads the requests
+   * over Gemini's free quota.
+   */
+  async scheduled(_controller, env): Promise<void> {
+    const stock = stockOf(env);
+    const difficulty = await stock.neediest();
+    if (!difficulty) return;
+    await stock.add(
+      difficulty,
+      await generateRosco(difficulty, generation(env)),
+    );
   },
 } satisfies ExportedHandler<Env>;
 

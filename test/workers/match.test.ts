@@ -1,112 +1,17 @@
 import { describe, expect, it } from "vitest";
+import type { ServerMessage, Settings } from "../../src/shared/protocol";
 import {
-  parseServerMessage,
-  type Action,
-  type DeviceKey,
-  type MatchView,
-  type ServerMessage,
-  type Settings,
-} from "../../src/shared/protocol";
-import {
+  connectDevice,
   createMatch,
+  join,
   neverIssuedMatchId,
   newDeviceKey,
-  request,
+  nextStateWhere,
+  openSocket,
   UNHOSTED,
 } from "./helpers";
 
 const HOSTED: Settings = { ...UNHOSTED, hosted: true };
-
-interface Device {
-  /** The next message this Device receives, in order. */
-  nextMessage(): Promise<ServerMessage>;
-  /** The next message, which must be a state. */
-  nextState(): Promise<MatchView>;
-  send(action: Action | string): void;
-  /** Closes the socket; resolves with the code of the Match's close reply. */
-  disconnect(code?: number): Promise<number>;
-}
-
-function openSocket(
-  matchId: string,
-  device: string | null,
-  headers: HeadersInit = { Upgrade: "websocket" },
-): Promise<Response> {
-  const query = device === null ? "" : `?device=${device}`;
-  return request(`/api/matches/${matchId}/ws${query}`, { headers });
-}
-
-async function connectDevice(
-  matchId: string,
-  key: DeviceKey = newDeviceKey(),
-): Promise<Device> {
-  const response = await openSocket(matchId, key);
-  const socket = response.webSocket;
-  if (!socket) throw new Error(`No WebSocket, status ${response.status}`);
-  socket.accept();
-
-  const received: ServerMessage[] = [];
-  const waiting: ((message: ServerMessage) => void)[] = [];
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") return;
-    const message = parseServerMessage(event.data);
-    if (!message) throw new Error(`Unexpected message: ${event.data}`);
-    const waiter = waiting.shift();
-    if (waiter) waiter(message);
-    else received.push(message);
-  });
-
-  const device: Device = {
-    nextMessage() {
-      const message = received.shift();
-      if (message) return Promise.resolve(message);
-      return new Promise((resolve) => waiting.push(resolve));
-    },
-    async nextState() {
-      const message = await device.nextMessage();
-      if (message.type !== "state") {
-        throw new Error(`Expected a state, got ${JSON.stringify(message)}`);
-      }
-      return message.state;
-    },
-    send(action) {
-      socket.send(typeof action === "string" ? action : JSON.stringify(action));
-    },
-    disconnect(code) {
-      const replied = new Promise<number>((resolve) => {
-        socket.addEventListener("close", (event) => {
-          resolve(event.code);
-        });
-      });
-      socket.close(code);
-      return replied;
-    },
-  };
-  return device;
-}
-
-/** Connects a new Device and joins it under the given name; returns its Member id. */
-async function join(
-  matchId: string,
-  name: string,
-): Promise<{ device: Device; id: number }> {
-  const device = await connectDevice(matchId);
-  await device.nextState();
-  device.send({ type: "join", name });
-  const { you } = await device.nextState();
-  if (you === null) throw new Error("Join failed");
-  return { device, id: you };
-}
-
-/** Skips states until one matches; Devices also get a state whenever another one connects or leaves. */
-async function nextStateWhere(
-  device: Device,
-  matches: (view: MatchView) => boolean,
-): Promise<MatchView> {
-  let view = await device.nextState();
-  while (!matches(view)) view = await device.nextState();
-  return view;
-}
 
 describe("a Device following a Match", () => {
   it("receives the Lobby as soon as it connects", async () => {

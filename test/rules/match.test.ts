@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   act,
+  addRosco,
   newMatch,
   viewFor,
   type Context,
@@ -13,6 +14,7 @@ import {
   type Role,
   type Settings,
 } from "../../src/shared/protocol";
+import { LETTERS, type Rosco } from "../../src/shared/rosco";
 
 const ANA = "00000000-0000-4000-8000-00000000000a";
 const BEA = "00000000-0000-4000-8000-00000000000b";
@@ -32,10 +34,22 @@ const UNHOSTED: Settings = {
 };
 const HOSTED: Settings = { ...UNHOSTED, hosted: true };
 
-function created(settings: Settings = UNHOSTED): MatchState {
+const ROSCO: Rosco = LETTERS.map((letter) => ({
+  letter,
+  contains: false,
+  text: `Definición de la ${letter}`,
+  answer: `${letter}respuesta`,
+  veryHard: false,
+}));
+
+/** A Match created with the given Roscos: both, unless a test says otherwise. */
+function created(
+  settings: Settings = UNHOSTED,
+  roscos: Rosco[] = [ROSCO, ROSCO],
+): MatchState {
   const result = newMatch(settings, { name: "Ana", device: ANA });
   if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
-  return result.state;
+  return roscos.reduce(addRosco, result.state);
 }
 
 /** Applies an Action that must be accepted. */
@@ -117,6 +131,7 @@ describe("creating a Match", () => {
       creator: view.you,
       roles: { host: null, player1: null, player2: null },
       you: view.creator,
+      roscosReady: true,
       canStart: false,
     });
   });
@@ -362,6 +377,41 @@ describe("Empezar", () => {
     });
 
     expect(canStart(state)).toBe(true);
+  });
+});
+
+describe("the Roscos", () => {
+  /** Ana and Bea as Players, in a Match the Stock had no Roscos for. */
+  function waitingForRoscos(): MatchState {
+    const state = accepted(created(UNHOSTED, []), BEA, {
+      type: "join",
+      name: "Bea",
+    });
+    return withRoles(state, { player1: ANA, player2: BEA });
+  }
+
+  it("keep Empezar disabled while they are being generated", () => {
+    const state = waitingForRoscos();
+
+    expect(viewFor(state, ANA, CONTEXT)).toMatchObject({ roscosReady: false });
+    expect(canStart(state)).toBe(false);
+    expect(rejection(state, ANA, { type: "start" })).toBe("roscos-not-ready");
+  });
+
+  it("are ready once the second one arrives", () => {
+    const one = addRosco(waitingForRoscos(), ROSCO);
+    expect(canStart(one)).toBe(false);
+
+    const both = addRosco(one, ROSCO);
+
+    expect(viewFor(both, ANA, CONTEXT)).toMatchObject({ roscosReady: true });
+    expect(canStart(both)).toBe(true);
+  });
+
+  it("never reach the Devices before the Match starts", () => {
+    expect(JSON.stringify(viewFor(created(), ANA, CONTEXT))).not.toContain(
+      "respuesta",
+    );
   });
 });
 

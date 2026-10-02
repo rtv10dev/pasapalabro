@@ -93,3 +93,8 @@ _Avoid_: Error, wrong
 The level of a Match (Easy, Normal or Hard) that sets how obscure the words in its Roscos are; every Rosco also includes a couple of very hard Clues.
 _UI_: Dificultad (Fácil, Normal, Difícil)
 _Avoid_: Level, mode
+
+**Stock**:
+The Roscos of each Difficulty generated ahead of time and kept ready for the next Matches to take.
+_UI_: none
+_Avoid_: Cache, pool, queue, buffer

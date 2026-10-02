@@ -11,6 +11,7 @@ import {
   type Role,
   type Settings,
 } from "../shared/protocol";
+import { LETTERS } from "../shared/rosco";
 import { deviceKeyFor } from "./device-key";
 import { h, showStatus } from "./dom";
 
@@ -40,6 +41,7 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "roles-missing": "Faltan roles por asignar.",
   "member-disconnected": "Alguien con un rol se ha desconectado.",
   "member-connected": "Solo puedes quitar a quien se ha desconectado.",
+  "roscos-not-ready": "Los roscos aún se están preparando.",
 };
 
 const root = document.querySelector<HTMLElement>("#match");
@@ -126,6 +128,7 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
         ),
       ),
     ),
+    !view.roscosReady && loadingRoscos(),
     isCreator
       ? h(
           "button",
@@ -144,6 +147,27 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
           `Esperando a que ${nameOf(view, view.creator)} pulse Empezar.`,
         ),
   ].filter((node) => node !== false);
+}
+
+/** The Rosco's letters lighting up in order, while the Match's Roscos are generated. */
+function loadingRoscos(): Node {
+  const ring = h(
+    "div",
+    { className: "loading-rosco" },
+    ...LETTERS.map((letter, index) => {
+      const span = h("span", {}, letter);
+      span.style.setProperty("--i", String(index));
+      return span;
+    }),
+  );
+  ring.style.setProperty("--n", String(LETTERS.length));
+  ring.setAttribute("aria-hidden", "true");
+  return h(
+    "section",
+    { className: "stack" },
+    ring,
+    h("p", { className: "muted" }, "Preparando los roscos…"),
+  );
 }
 
 function share(): Node {

@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
-    "typecheck": "tsc -p src/shared && tsc -p src/rules && tsc -p src/worker && tsc -p src/client && tsc -p test/rules && tsc -p test/workers",
+    "typecheck": "tsc -p src/shared && tsc -p src/rules && tsc -p src/clues && tsc -p src/worker && tsc -p src/client && tsc -p test/rules && tsc -p test/fixtures && tsc -p test/clues && tsc -p test/workers",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

@@ -13,7 +13,19 @@
     "run_worker_first": ["/api/*", "/m/*"],
   },
   "durable_objects": {
-    "bindings": [{ "name": "MATCH", "class_name": "Match" }],
+    "bindings": [
+      { "name": "MATCH", "class_name": "Match" },
+      { "name": "STOCK", "class_name": "Stock" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Match"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Match"] },
+    { "tag": "v2", "new_sqlite_classes": ["Stock"] },
+  ],
+  // Workers AI runs gpt-oss-120b, the fallback when Gemini fails (ADR 0004).
+  "ai": { "binding": "AI", "remote": true },
+  // The Gemini key: `wrangler secret put GEMINI_API_KEY`, or `.dev.vars` locally.
+  "secrets": { "required": ["GEMINI_API_KEY"] },
+  // Tops the Stock up with one Rosco per run (src/worker/index.ts).
+  "triggers": { "crons": ["*/5 * * * *"] },
 }

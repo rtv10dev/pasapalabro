@@ -7,5 +7,12 @@
       "@cloudflare/vitest-pool-workers/types"
     ]
   },
-  "include": [".", "../../src/worker", "../../src/rules", "../../src/shared"]
+  "include": [
+    ".",
+    "../fixtures",
+    "../../src/worker",
+    "../../src/clues",
+    "../../src/rules",
+    "../../src/shared"
+  ]
 }

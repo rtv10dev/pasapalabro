@@ -170,3 +170,53 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The Rosco's letters in a circle, each lighting up in turn. */
+.loading-rosco {
+  --size: min(70vw, 15rem);
+  --letter: 1.6rem;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  align-self: center;
+}
+
+.loading-rosco span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--letter);
+  height: var(--letter);
+  margin: calc(var(--letter) / -2);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--fg);
+  transform: rotate(calc(360deg * var(--i) / var(--n)))
+    translateY(calc((var(--size) - var(--letter)) / -2))
+    rotate(calc(-360deg * var(--i) / var(--n)));
+  animation: light-up 2.5s linear infinite;
+  animation-delay: calc(2.5s * var(--i) / var(--n));
+}
+
+@keyframes light-up {
+  0%,
+  12% {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  30%,
+  100% {
+    background: var(--line);
+    color: var(--fg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-rosco span {
+    animation-duration: 10s;
+  }
+}
