@@ -38,13 +38,15 @@ export class Match extends DurableObject<Env> {
     const device = parseDeviceKey(
       new URL(request.url).searchParams.get("device"),
     );
-    if (!device)
+    if (!device) {
       return new Response("Falta la clave del dispositivo", { status: 400 });
+    }
 
     const { 0: deviceEnd, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
     socket.serializeAttachment(device);
-    send(socket, { type: "state", state: viewFor(state, device, Date.now()) });
+    // Everyone sees this Device's Member connected, and it gets its first view.
+    this.broadcast(state, this.ctx.getWebSockets());
     return new Response(null, { status: 101, webSocket: deviceEnd });
   }
 
@@ -61,21 +63,18 @@ export class Match extends DurableObject<Env> {
       return;
     }
 
-    const now = Date.now();
-    const result = act(state, device, action, { now, random: Math.random() });
+    const sockets = this.ctx.getWebSockets();
+    const result = act(state, device, action, {
+      now: Date.now(),
+      random: Math.random(),
+      connected: devicesOf(sockets),
+    });
     if (!result.ok) {
       send(socket, { type: "rejected", reason: result.reason });
       return;
     }
     this.save(result.state);
-    for (const follower of this.ctx.getWebSockets()) {
-      const key = deviceOf(follower);
-      if (key)
-        send(follower, {
-          type: "state",
-          state: viewFor(result.state, key, now),
-        });
-    }
+    this.broadcast(result.state, sockets);
   }
 
   override webSocketClose(
@@ -83,9 +82,35 @@ export class Match extends DurableObject<Env> {
     code: number,
     reason: string,
   ): void {
+    this.leave(closed);
     // The runtime doesn't answer the Device's close frame for us. 1005 means
     // the Device sent no code, and it can't be sent back.
     closed.close(code === NO_STATUS_RECEIVED ? NORMAL_CLOSURE : code, reason);
+  }
+
+  override webSocketError(failed: WebSocket): void {
+    this.leave(failed);
+  }
+
+  /** Tells the Devices still here that this one has gone. */
+  private leave(gone: WebSocket): void {
+    const state = this.load();
+    if (!state) return;
+    this.broadcast(
+      state,
+      this.ctx.getWebSockets().filter((socket) => socket !== gone),
+    );
+  }
+
+  /** Sends each of the given sockets its own view of the state. */
+  private broadcast(state: MatchState, sockets: WebSocket[]): void {
+    const at = { now: Date.now(), connected: devicesOf(sockets) };
+    for (const socket of sockets) {
+      const device = deviceOf(socket);
+      if (device) {
+        send(socket, { type: "state", state: viewFor(state, device, at) });
+      }
+    }
   }
 
   private load(): MatchState | undefined {
@@ -101,6 +126,15 @@ export class Match extends DurableObject<Env> {
 function deviceOf(socket: WebSocket): DeviceKey | null {
   const attachment: unknown = socket.deserializeAttachment();
   return parseDeviceKey(attachment);
+}
+
+function devicesOf(sockets: WebSocket[]): Set<DeviceKey> {
+  const devices = new Set<DeviceKey>();
+  for (const socket of sockets) {
+    const device = deviceOf(socket);
+    if (device) devices.add(device);
+  }
+  return devices;
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {

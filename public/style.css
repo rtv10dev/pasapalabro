@@ -156,6 +156,16 @@ button.secondary {
   border: 1px solid var(--accent);
 }
 
+button.small {
+  font-size: 0.85rem;
+  padding: 0.2em 0.8em;
+  margin-inline-start: 0.5rem;
+}
+
+.members .away {
+  color: var(--muted);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

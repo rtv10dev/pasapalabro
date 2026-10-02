@@ -76,6 +76,7 @@ const actionSchema = z.discriminatedUnion("type", [
     member: z.nullable(memberIdSchema),
   }),
   z.object({ type: z.literal("start") }),
+  z.object({ type: z.literal("remove"), member: memberIdSchema }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -94,6 +95,8 @@ export const REJECTIONS = [
   "not-hosted",
   "unknown-member",
   "roles-missing",
+  "member-disconnected",
+  "member-connected",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -107,7 +110,14 @@ export type Roles = z.infer<typeof rolesSchema>;
 
 const matchViewFields = {
   settings: settingsSchema,
-  members: z.array(z.object({ id: memberIdSchema, name: z.string() })),
+  members: z.array(
+    z.object({
+      id: memberIdSchema,
+      name: z.string(),
+      /** Whether the Member's Device has the Match open right now. */
+      connected: z.boolean(),
+    }),
+  ),
   creator: memberIdSchema,
   roles: rolesSchema,
   /** The Member using this Device; null until it joins. */

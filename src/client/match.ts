@@ -38,6 +38,8 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "not-hosted": "Esta partida no tiene Presentador.",
   "unknown-member": "Esa persona ya no está en la partida.",
   "roles-missing": "Faltan roles por asignar.",
+  "member-disconnected": "Alguien con un rol se ha desconectado.",
+  "member-connected": "Solo puedes quitar a quien se ha desconectado.",
 };
 
 const root = document.querySelector<HTMLElement>("#match");
@@ -102,10 +104,24 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
         ...view.members.map((member) =>
           h(
             "li",
-            {},
+            { className: member.connected ? "" : "away" },
             member.name,
             member.id === view.creator && " · Creador",
             member.id === view.you && " (tú)",
+            !member.connected && " · desconectado",
+            isCreator &&
+              !member.connected &&
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "secondary small",
+                  onclick: () => {
+                    send({ type: "remove", member: member.id });
+                  },
+                },
+                "Quitar",
+              ),
           ),
         ),
       ),

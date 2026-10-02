@@ -25,6 +25,8 @@ export interface MatchState {
   members: Member[];
   creator: MemberId;
   roles: Roles;
+  /** Ids are never reused, so a removed Member's id can't point at someone else. */
+  nextMemberId: MemberId;
   /** Set when the Creator presses Empezar; null while in the Lobby. */
   start: {
     firstPlayer: PlayerRole;
@@ -42,6 +44,8 @@ export interface Context {
   now: number;
   /** A random number in [0, 1). */
   random: number;
+  /** The Devices that have the Match open right now. */
+  connected: ReadonlySet<DeviceKey>;
 }
 
 /** How long the countdown before the first Turn lasts. */
@@ -61,6 +65,7 @@ export function newMatch(settings: Settings, creator: Creator): Result {
       members: [{ id, name, device: creator.device }],
       creator: id,
       roles: { host: null, player1: null, player2: null },
+      nextMemberId: id + 1,
       start: null,
     },
   };
@@ -83,24 +88,34 @@ export function act(
       return assign(state, action.role, action.member);
     case "start":
       return start(state, context);
+    case "remove":
+      return remove(state, action.member, context.connected);
   }
 }
 
-/** What the given Device sees of the Match at the given time (epoch ms). */
+/** What the given Device sees of the Match right now. */
 export function viewFor(
   state: MatchState,
   device: DeviceKey,
-  now: number,
+  { now, connected }: Pick<Context, "now" | "connected">,
 ): MatchView {
   const common = {
     settings: state.settings,
-    members: state.members.map(({ id, name }) => ({ id, name })),
+    members: state.members.map(({ id, name, device: key }) => ({
+      id,
+      name,
+      connected: connected.has(key),
+    })),
     creator: state.creator,
     roles: state.roles,
     you: memberOf(state, device)?.id ?? null,
   };
   if (!state.start) {
-    return { ...common, phase: "lobby", canStart: rolesFilled(state) };
+    return {
+      ...common,
+      phase: "lobby",
+      canStart: whyNotStart(state, connected) === null,
+    };
   }
   const { firstPlayer, countdownEndsAt } = state.start;
   return {
@@ -123,10 +138,14 @@ function join(state: MatchState, device: DeviceKey, typed: string): Result {
   ) {
     return { ok: false, reason: "name-taken" };
   }
-  const id = Math.max(...state.members.map((member) => member.id)) + 1;
+  const id = state.nextMemberId;
   return {
     ok: true,
-    state: { ...state, members: [...state.members, { id, name, device }] },
+    state: {
+      ...state,
+      members: [...state.members, { id, name, device }],
+      nextMemberId: id + 1,
+    },
   };
 }
 
@@ -142,36 +161,72 @@ function assign(
     return { ok: false, reason: "unknown-member" };
   }
   // A Member holds one role at most: taking this one frees any other.
-  const roles: Roles = {
-    host: state.roles.host === member ? null : state.roles.host,
-    player1: state.roles.player1 === member ? null : state.roles.player1,
-    player2: state.roles.player2 === member ? null : state.roles.player2,
-  };
-  return { ok: true, state: { ...state, roles: { ...roles, [role]: member } } };
+  const roles = { ...withoutMember(state.roles, member), [role]: member };
+  return { ok: true, state: { ...state, roles } };
 }
 
-// Both Roscos are always ready until Clue generation (#4) lands.
-function start(state: MatchState, { now, random }: Context): Result {
-  if (!rolesFilled(state)) return { ok: false, reason: "roles-missing" };
+function remove(
+  state: MatchState,
+  id: MemberId,
+  connected: ReadonlySet<DeviceKey>,
+): Result {
+  const member = state.members.find((each) => each.id === id);
+  if (!member) return { ok: false, reason: "unknown-member" };
+  if (connected.has(member.device)) {
+    return { ok: false, reason: "member-connected" };
+  }
+  return {
+    ok: true,
+    state: {
+      ...state,
+      members: state.members.filter((each) => each !== member),
+      roles: withoutMember(state.roles, id),
+    },
+  };
+}
+
+function start(state: MatchState, context: Context): Result {
+  const reason = whyNotStart(state, context.connected);
+  if (reason) return { ok: false, reason };
   return {
     ok: true,
     state: {
       ...state,
       start: {
-        firstPlayer: random < 0.5 ? "player1" : "player2",
-        countdownEndsAt: now + COUNTDOWN_MS,
+        firstPlayer: context.random < 0.5 ? "player1" : "player2",
+        countdownEndsAt: context.now + COUNTDOWN_MS,
       },
     },
   };
 }
 
-/** Whether every role the Match needs has a Member. */
-function rolesFilled({ settings, roles }: MatchState): boolean {
-  return (
-    roles.player1 !== null &&
-    roles.player2 !== null &&
-    (!settings.hosted || roles.host !== null)
+/**
+ * Why Empezar can't be pressed yet; null if it can. Both Roscos are always
+ * ready until Clue generation (#4) lands.
+ */
+function whyNotStart(
+  { settings, roles, members }: MatchState,
+  connected: ReadonlySet<DeviceKey>,
+): Rejection | null {
+  const needed = settings.hosted
+    ? [roles.host, roles.player1, roles.player2]
+    : [roles.player1, roles.player2];
+  if (needed.includes(null)) return "roles-missing";
+  const away = members.some(
+    ({ id, device }) => needed.includes(id) && !connected.has(device),
   );
+  return away ? "member-disconnected" : null;
+}
+
+/** The roles with the given Member taken out of any they hold. */
+function withoutMember(roles: Roles, member: MemberId | null): Roles {
+  const free = (holder: MemberId | null): MemberId | null =>
+    holder === member ? null : holder;
+  return {
+    host: free(roles.host),
+    player1: free(roles.player1),
+    player2: free(roles.player2),
+  };
 }
 
 /** The name as a Member would be shown; null if it can't be one. */

@@ -98,6 +98,16 @@ async function join(
   return { device, id: you };
 }
 
+/** Skips states until one matches; Devices also get a state whenever another one connects or leaves. */
+async function nextStateWhere(
+  device: Device,
+  matches: (view: MatchView) => boolean,
+): Promise<MatchView> {
+  let view = await device.nextState();
+  while (!matches(view)) view = await device.nextState();
+  return view;
+}
+
 describe("a Device following a Match", () => {
   it("receives the Lobby as soon as it connects", async () => {
     const { id } = await createMatch(UNHOSTED, "Ana");
@@ -128,7 +138,7 @@ describe("a Device following a Match", () => {
 
     await join(id, "Bea");
 
-    const view = await ana.nextState();
+    const view = await nextStateWhere(ana, (each) => each.members.length > 1);
     expect(view.members.map((member) => member.name)).toEqual(["Ana", "Bea"]);
   });
 
@@ -144,6 +154,46 @@ describe("a Device following a Match", () => {
     const again = await connectDevice(id, key);
 
     expect((await again.nextState()).you).toBe(you);
+  });
+
+  it("sees a Member marked disconnected when their Device closes the Match", async () => {
+    const { id, creator } = await createMatch();
+    const ana = await connectDevice(id, creator);
+    await ana.nextState();
+    const bea = await join(id, "Bea");
+    await nextStateWhere(ana, (view) => view.members.length === 2);
+
+    await bea.device.disconnect(1000);
+
+    const view = await nextStateWhere(ana, (each) =>
+      each.members.some((member) => !member.connected),
+    );
+    expect(view.members).toEqual([
+      { id: view.creator, name: "Ana", connected: true },
+      { id: bea.id, name: "Bea", connected: false },
+    ]);
+  });
+
+  it("sees a Member connected again when their Device comes back", async () => {
+    const { id, creator } = await createMatch();
+    const ana = await connectDevice(id, creator);
+    await ana.nextState();
+    const key = newDeviceKey();
+    const bea = await connectDevice(id, key);
+    await bea.nextState();
+    bea.send({ type: "join", name: "Bea" });
+    await bea.nextState();
+    await bea.disconnect(1000);
+    await nextStateWhere(ana, (view) =>
+      view.members.some((member) => !member.connected),
+    );
+
+    await connectDevice(id, key);
+
+    const view = await nextStateWhere(ana, (each) =>
+      each.members.every((member) => member.connected),
+    );
+    expect(view.members.map((member) => member.name)).toEqual(["Ana", "Bea"]);
   });
 
   it("is told why the Match refused its action", async () => {
@@ -204,11 +254,9 @@ describe("Empezar", () => {
     const ana = await connectDevice(id, creator);
     const { you: anaId } = await ana.nextState();
     const bea = await join(id, "Bea");
-    await ana.nextState();
     ana.send({ type: "assign", role: "player1", member: anaId });
-    await ana.nextState();
     ana.send({ type: "assign", role: "player2", member: bea.id });
-    await ana.nextState();
+    await nextStateWhere(ana, (view) => view.roles.player2 === bea.id);
 
     ana.send({ type: "start" });
 
