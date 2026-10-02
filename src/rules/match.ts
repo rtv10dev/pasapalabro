@@ -36,8 +36,8 @@ export interface MatchState {
   /** Set when the Creator presses Empezar; null while in the Lobby. */
   start: {
     firstPlayer: PlayerRole;
-    /** In epoch milliseconds. */
-    countdownEndsAt: number;
+    /** In epoch milliseconds; null until both Roscos are ready. */
+    countdownEndsAt: number | null;
   } | null;
 }
 
@@ -84,13 +84,25 @@ export function newMatch(settings: Settings, creator: Creator): Result {
   };
 }
 
-/** Gives the Match one of its Roscos; ignored once it has both. */
-export function addRosco(state: MatchState, rosco: Rosco): MatchState {
+/**
+ * Gives the Match one of its Roscos, arriving at `now`; ignored once it has
+ * both. The last one starts the countdown if Empezar was already pressed.
+ */
+export function addRosco(
+  state: MatchState,
+  rosco: Rosco,
+  now: number,
+): MatchState {
   if (missingRoscos(state) === 0) return state;
-  return { ...state, roscos: [...state.roscos, rosco] };
+  const next = { ...state, roscos: [...state.roscos, rosco] };
+  if (!next.start || missingRoscos(next) > 0) return next;
+  return {
+    ...next,
+    start: { ...next.start, countdownEndsAt: now + COUNTDOWN_MS },
+  };
 }
 
-/** How many Roscos the Match still needs before it can start. */
+/** How many Roscos the Match still needs before its first Turn. */
 export function missingRoscos({ roscos }: MatchState): number {
   return Math.max(0, ROSCOS_PER_MATCH - roscos.length);
 }
@@ -138,7 +150,6 @@ export function viewFor(
     return {
       ...common,
       phase: "lobby",
-      roscosReady: missingRoscos(state) === 0,
       canStart: whyNotStart(state, connected) === null,
     };
   }
@@ -147,7 +158,8 @@ export function viewFor(
     ...common,
     phase: "started",
     firstPlayer,
-    countdownMs: Math.max(0, countdownEndsAt - now),
+    countdownMs:
+      countdownEndsAt === null ? null : Math.max(0, countdownEndsAt - now),
   };
 }
 
@@ -219,18 +231,22 @@ function start(state: MatchState, context: Context): Result {
       ...state,
       start: {
         firstPlayer: context.random < 0.5 ? "player1" : "player2",
-        countdownEndsAt: context.now + COUNTDOWN_MS,
+        // Without both Roscos, the countdown waits for the last one.
+        countdownEndsAt:
+          missingRoscos(state) === 0 ? context.now + COUNTDOWN_MS : null,
       },
     },
   };
 }
 
-/** Why Empezar can't be pressed yet; null if it can. */
+/**
+ * Why Empezar can't be pressed yet; null if it can. The Roscos don't have
+ * to be ready: the countdown after Empezar waits for them.
+ */
 function whyNotStart(
-  state: MatchState,
+  { settings, roles, members }: MatchState,
   connected: ReadonlySet<DeviceKey>,
 ): Rejection | null {
-  const { settings, roles, members } = state;
   const needed = settings.hosted
     ? [roles.host, roles.player1, roles.player2]
     : [roles.player1, roles.player2];
@@ -238,8 +254,7 @@ function whyNotStart(
   const away = members.some(
     ({ id, device }) => needed.includes(id) && !connected.has(device),
   );
-  if (away) return "member-disconnected";
-  return missingRoscos(state) === 0 ? null : "roscos-not-ready";
+  return away ? "member-disconnected" : null;
 }
 
 /** The roles with the given Member taken out of any they hold. */

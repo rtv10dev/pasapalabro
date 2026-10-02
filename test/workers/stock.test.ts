@@ -3,14 +3,17 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/worker";
 import { stockOf } from "../../src/worker/stock";
+import type { MatchView } from "../../src/shared/protocol";
 import { GOOD_REPLY } from "../fixtures/clues";
 import {
   connectDevice,
   createMatchAsIs,
+  join,
   newDeviceKey,
   nextStateWhere,
   postMatch,
   UNHOSTED,
+  type Device,
 } from "./helpers";
 
 const GEMINI = "https://generativelanguage.googleapis.com/";
@@ -59,19 +62,39 @@ async function runCron(): Promise<void> {
   );
 }
 
+/**
+ * Creates a Match with the Stock as it is, has Ana and Bea join as Players
+ * and Ana press Empezar; returns Bea's Device and the first view she gets
+ * of the started Match.
+ */
+async function startMatch(): Promise<{
+  bea: Device;
+  view: MatchView & { phase: "started" };
+}> {
+  const { id, creator } = await createMatchAsIs(UNHOSTED);
+  const ana = await connectDevice(id, creator);
+  const { you: anaId } = await ana.nextState();
+  const bea = await join(id, "Bea");
+  ana.send({ type: "assign", role: "player1", member: anaId });
+  ana.send({ type: "assign", role: "player2", member: bea.id });
+  ana.send({ type: "start" });
+  const view = await nextStateWhere(
+    bea.device,
+    (each) => each.phase === "started",
+  );
+  if (view.phase !== "started") throw new Error("Not started");
+  return { bea: bea.device, view };
+}
+
 describe("the Stock", () => {
   it("is filled by the Cron Trigger, so a new Match has its Roscos at once", async () => {
     // One Rosco per run, for the emptiest Difficulty: Fácil, Normal, Difícil, Fácil, Normal.
     for (let run = 0; run < 5; run++) await runCron();
     holdGemini();
 
-    const { id, creator } = await createMatchAsIs(UNHOSTED);
-    const device = await connectDevice(id, creator);
+    const { view } = await startMatch();
 
-    expect(await device.nextState()).toMatchObject({
-      phase: "lobby",
-      roscosReady: true,
-    });
+    expect(view.countdownMs).toEqual(expect.any(Number));
     expect(geminiRequests).toBe(5);
   });
 
@@ -83,11 +106,10 @@ describe("the Stock", () => {
       settings: UNHOSTED,
       creator: { name: "  ", device: newDeviceKey() },
     });
-    const { id, creator } = await createMatchAsIs(UNHOSTED);
-    const device = await connectDevice(id, creator);
+    const { view } = await startMatch();
 
     expect(refused.status).toBe(400);
-    expect(await device.nextState()).toMatchObject({ roscosReady: true });
+    expect(view.countdownMs).toEqual(expect.any(Number));
   });
 
   it("stops asking for Roscos once every Difficulty has enough", async () => {
@@ -102,19 +124,19 @@ describe("the Stock", () => {
 });
 
 describe("a Match the Stock has no Roscos for", () => {
-  it("shows the Lobby loading until its Roscos are generated", async () => {
+  it("starts the countdown after Empezar only once its Roscos are generated", async () => {
     holdGemini();
-    const { id, creator } = await createMatchAsIs(UNHOSTED);
-    const device = await connectDevice(id, creator);
+    const { bea, view } = await startMatch();
 
-    expect(await device.nextState()).toMatchObject({ roscosReady: false });
+    expect(view.countdownMs).toBeNull();
 
     letGeminiAnswer();
 
-    const ready = await nextStateWhere(device, (view) =>
-      view.phase === "lobby" ? view.roscosReady : false,
+    const ready = await nextStateWhere(
+      bea,
+      (each) => each.phase === "started" && each.countdownMs !== null,
     );
-    expect(ready.phase).toBe("lobby");
+    expect(ready).toMatchObject({ countdownMs: expect.any(Number) });
     expect(geminiRequests).toBe(2);
   });
 });

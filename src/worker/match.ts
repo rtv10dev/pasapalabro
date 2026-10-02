@@ -53,17 +53,17 @@ export class Match extends DurableObject<Env> {
       settings.difficulty,
       missingRoscos(state),
     );
-    for (const rosco of roscos) state = addRosco(state, rosco);
+    for (const rosco of roscos) state = addRosco(state, rosco, Date.now());
     this.save(state);
     if (missingRoscos(state) > 0) await this.ctx.storage.setAlarm(Date.now());
     return null;
   }
 
   /**
-   * Generates the Roscos the Stock couldn't give, both at once so the Lobby
-   * waits for one generation, not two. Keeps any that succeed, and tries
-   * again a minute later while some are missing: the Lobby can't start
-   * without them.
+   * Generates the Roscos the Stock couldn't give, both at once so the
+   * Players wait for one generation, not two. Keeps any that succeed, and
+   * tries again a minute later while some are missing: the first Turn can't
+   * begin without them.
    */
   override async alarm(): Promise<void> {
     const before = this.load();
@@ -76,8 +76,9 @@ export class Match extends DurableObject<Env> {
     // Members may have joined while the Roscos were being generated.
     let state = this.load() ?? before;
     for (const result of results) {
-      if (result.status === "fulfilled") state = addRosco(state, result.value);
-      else console.error("Couldn't generate a Rosco", result.reason);
+      if (result.status === "fulfilled") {
+        state = addRosco(state, result.value, Date.now());
+      } else console.error("Couldn't generate a Rosco", result.reason);
     }
     this.save(state);
     this.broadcast(state, this.ctx.getWebSockets());

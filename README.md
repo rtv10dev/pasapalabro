@@ -4,7 +4,7 @@ An online, Spanish-language El Rosco for two Players and a Host in one room. See
 
 It runs on Cloudflare Workers: one Durable Object per Match owns its state and the WebSockets of every Device following it (ADR 0002). Devices send actions (join, assign a role, Empezar) and render the full view the Match sends each of them on every change. Reconnecting after a drop arrives with #8.
 
-Roscos are generated ahead of time (ADR 0004): a `Stock` Durable Object keeps a few ready per Difficulty, and a Cron Trigger adds one every 5 minutes to whichever Difficulty is short. A new Match takes two; if the Stock has none, the Match generates its own while the Lobby shows the letters lighting up. Gemini writes the Clues, gpt-oss-120b on Workers AI when Gemini fails.
+Roscos are generated ahead of time (ADR 0004): a `Stock` Durable Object keeps a few ready per Difficulty, and a Cron Trigger adds one every 5 minutes to whichever Difficulty is short. A new Match takes two; if the Stock has none, the Match generates its own, and after Empezar every Device shows the letters lighting up until they're ready and the countdown can begin. Gemini writes the Clues, gpt-oss-120b on Workers AI when Gemini fails.
 
 ## Layout
 

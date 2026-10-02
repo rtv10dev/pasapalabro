@@ -49,7 +49,10 @@ function created(
 ): MatchState {
   const result = newMatch(settings, { name: "Ana", device: ANA });
   if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
-  return roscos.reduce(addRosco, result.state);
+  return roscos.reduce(
+    (state, rosco) => addRosco(state, rosco, NOW),
+    result.state,
+  );
 }
 
 /** Applies an Action that must be accepted. */
@@ -131,7 +134,6 @@ describe("creating a Match", () => {
       creator: view.you,
       roles: { host: null, player1: null, player2: null },
       you: view.creator,
-      roscosReady: true,
       canStart: false,
     });
   });
@@ -390,22 +392,31 @@ describe("the Roscos", () => {
     return withRoles(state, { player1: ANA, player2: BEA });
   }
 
-  it("keep Empezar disabled while they are being generated", () => {
+  it("don't hold Empezar back while they are being generated", () => {
     const state = waitingForRoscos();
 
-    expect(viewFor(state, ANA, CONTEXT)).toMatchObject({ roscosReady: false });
-    expect(canStart(state)).toBe(false);
-    expect(rejection(state, ANA, { type: "start" })).toBe("roscos-not-ready");
+    expect(canStart(state)).toBe(true);
   });
 
-  it("are ready once the second one arrives", () => {
-    const one = addRosco(waitingForRoscos(), ROSCO);
-    expect(canStart(one)).toBe(false);
+  it("hold the countdown back after Empezar until they are ready", () => {
+    const state = accepted(waitingForRoscos(), ANA, { type: "start" });
 
-    const both = addRosco(one, ROSCO);
+    expect(viewFor(state, BEA, CONTEXT)).toMatchObject({
+      phase: "started",
+      countdownMs: null,
+    });
+  });
 
-    expect(viewFor(both, ANA, CONTEXT)).toMatchObject({ roscosReady: true });
-    expect(canStart(both)).toBe(true);
+  it("start the countdown when the last one arrives", () => {
+    const started = accepted(waitingForRoscos(), ANA, { type: "start" });
+    const one = addRosco(started, ROSCO, NOW + 1000);
+    expect(viewFor(one, BEA, CONTEXT)).toMatchObject({ countdownMs: null });
+
+    const both = addRosco(one, ROSCO, NOW + 7000);
+
+    expect(viewFor(both, BEA, { ...CONTEXT, now: NOW + 8000 })).toMatchObject({
+      countdownMs: 4000,
+    });
   });
 
   it("never reach the Devices before the Match starts", () => {

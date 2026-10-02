@@ -97,7 +97,6 @@ export const REJECTIONS = [
   "roles-missing",
   "member-disconnected",
   "member-connected",
-  "roscos-not-ready",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -130,8 +129,6 @@ const matchViewSchema = z.discriminatedUnion("phase", [
   z.object({
     ...matchViewFields,
     phase: z.literal("lobby"),
-    /** False while the Match's Roscos are still being generated. */
-    roscosReady: z.boolean(),
     canStart: z.boolean(),
   }),
   z.object({
@@ -141,8 +138,9 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     /**
      * Milliseconds left in the countdown before the first Turn, as of sending:
      * a duration, so a Device with a wrong clock still counts down right.
+     * Null while the Match's Roscos are still being generated.
      */
-    countdownMs: z.number(),
+    countdownMs: z.nullable(z.number()),
   }),
 ]);
 export type MatchView = z.infer<typeof matchViewSchema>;

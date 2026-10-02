@@ -41,7 +41,6 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "roles-missing": "Faltan roles por asignar.",
   "member-disconnected": "Alguien con un rol se ha desconectado.",
   "member-connected": "Solo puedes quitar a quien se ha desconectado.",
-  "roscos-not-ready": "Los roscos aún se están preparando.",
 };
 
 const root = document.querySelector<HTMLElement>("#match");
@@ -128,7 +127,6 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
         ),
       ),
     ),
-    !view.roscosReady && loadingRoscos(),
     isCreator
       ? h(
           "button",
@@ -149,7 +147,7 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
   ].filter((node) => node !== false);
 }
 
-/** The Rosco's letters lighting up in order, while the Match's Roscos are generated. */
+/** The Rosco's letters lighting up in order, after Empezar while the Roscos are generated. */
 function loadingRoscos(): Node {
   const ring = h(
     "div",
@@ -258,15 +256,6 @@ function started(view: MatchView & { phase: "started" }): Node[] {
     (role) => view.you !== null && view.roles[role] === view.you,
   );
   const first = view.roles[view.firstPlayer];
-  const countdown = h("p", { className: "countdown" });
-  const endsAt = performance.now() + view.countdownMs;
-  const tick = (): void => {
-    const seconds = Math.ceil((endsAt - performance.now()) / 1000);
-    countdown.textContent = seconds > 0 ? String(seconds) : "¡A jugar!";
-    if (seconds <= 0) window.clearInterval(countdownInterval);
-  };
-  tick();
-  countdownInterval = window.setInterval(tick, 200);
 
   return [
     h("h1", {}, "¡Empieza la partida!"),
@@ -277,7 +266,7 @@ function started(view: MatchView & { phase: "started" }): Node[] {
       h("strong", {}, first === null ? "" : nameOf(view, first)),
       ` (${ROLE_LABELS[view.firstPlayer]})`,
     ),
-    countdown,
+    view.countdownMs === null ? loadingRoscos() : countdown(view.countdownMs),
     h(
       "section",
       { className: "stack" },
@@ -291,6 +280,20 @@ function started(view: MatchView & { phase: "started" }): Node[] {
         : "Estás mirando la partida.",
     ),
   ];
+}
+
+/** Counts down to the first Turn; starts again from the time left on every new view. */
+function countdown(ms: number): Node {
+  const display = h("p", { className: "countdown" });
+  const endsAt = performance.now() + ms;
+  const tick = (): void => {
+    const seconds = Math.ceil((endsAt - performance.now()) / 1000);
+    display.textContent = seconds > 0 ? String(seconds) : "¡A jugar!";
+    if (seconds <= 0) window.clearInterval(countdownInterval);
+  };
+  tick();
+  countdownInterval = window.setInterval(tick, 200);
+  return display;
 }
 
 function rolesOf(settings: Settings): readonly Role[] {
