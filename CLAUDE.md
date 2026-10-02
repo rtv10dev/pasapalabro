@@ -1,3 +1,7 @@
+## Coding standards
+
+Read `CODING_STANDARDS.md` before writing code; all code must follow it.
+
 ## Agent skills
 
 ### Issue tracker
