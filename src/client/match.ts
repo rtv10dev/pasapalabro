@@ -2,6 +2,7 @@ import { renderSVG } from "uqr";
 import {
   MAX_NAME_LENGTH,
   parseServerMessage,
+  PLAYER_ROLES,
   ROLES,
   type Action,
   type Difficulty,
@@ -41,6 +42,8 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "roles-missing": "Faltan roles por asignar.",
   "member-disconnected": "Alguien con un rol se ha desconectado.",
   "member-connected": "Solo puedes quitar a quien se ha desconectado.",
+  "not-started": "La partida aún no ha empezado.",
+  "not-player": "Solo los jugadores pueden pulsar ¡Listo!.",
 };
 
 const root = document.querySelector<HTMLElement>("#match");
@@ -76,7 +79,7 @@ export function followMatch(matchId: string): void {
 function render(view: MatchView, send: Send): void {
   window.clearInterval(countdownInterval);
   root?.replaceChildren(
-    ...(view.phase === "lobby" ? lobby(view, send) : started(view)),
+    ...(view.phase === "lobby" ? lobby(view, send) : started(view, send)),
   );
 }
 
@@ -251,7 +254,7 @@ function roleLine(view: MatchView, role: Role): Node {
   );
 }
 
-function started(view: MatchView & { phase: "started" }): Node[] {
+function started(view: MatchView & { phase: "started" }, send: Send): Node[] {
   const yourRole = ROLES.find(
     (role) => view.you !== null && view.roles[role] === view.you,
   );
@@ -266,7 +269,9 @@ function started(view: MatchView & { phase: "started" }): Node[] {
       h("strong", {}, first === null ? "" : nameOf(view, first)),
       ` (${ROLE_LABELS[view.firstPlayer]})`,
     ),
-    view.countdownMs === null ? loadingRoscos() : countdown(view.countdownMs),
+    view.countdownMs === null
+      ? readiness(view, yourRole, send)
+      : countdown(view.countdownMs),
     h(
       "section",
       { className: "stack" },
@@ -280,6 +285,48 @@ function started(view: MatchView & { phase: "started" }): Node[] {
         : "Estás mirando la partida.",
     ),
   ];
+}
+
+/**
+ * Before the countdown: the Rosco loading while it is generated, who has
+ * pressed ¡Listo!, and the button for a Player who hasn't.
+ */
+function readiness(
+  view: MatchView & { phase: "started" },
+  yourRole: Role | undefined,
+  send: Send,
+): Node {
+  const yourPlayerRole = PLAYER_ROLES.find((role) => role === yourRole);
+  return h(
+    "section",
+    { className: "stack" },
+    !view.roscosReady && loadingRoscos(),
+    h(
+      "ul",
+      { className: "members" },
+      ...PLAYER_ROLES.map((role) => {
+        const member = view.roles[role];
+        return h(
+          "li",
+          { className: view.ready[role] ? "" : "away" },
+          `${member === null ? ROLE_LABELS[role] : nameOf(view, member)}: `,
+          view.ready[role] ? "¡listo!" : "esperando…",
+        );
+      }),
+    ),
+    yourPlayerRole !== undefined &&
+      !view.ready[yourPlayerRole] &&
+      h(
+        "button",
+        {
+          type: "button",
+          onclick: () => {
+            send({ type: "ready" });
+          },
+        },
+        "¡Listo!",
+      ),
+  );
 }
 
 /** Counts down to the first Turn; starts again from the time left on every new view. */

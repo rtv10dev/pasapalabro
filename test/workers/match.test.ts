@@ -219,6 +219,35 @@ describe("Empezar", () => {
         phase: "started",
         roles,
         firstPlayer: expect.stringMatching(/^player[12]$/),
+        ready: { player1: false, player2: false },
+        countdownMs: null,
+      });
+    }
+  });
+
+  it("counts down on every Device once both Players press ¡Listo!", async () => {
+    const { id, creator } = await createMatch(HOSTED);
+    const ana = await connectDevice(id, creator);
+    const { you: anaId } = await ana.nextState();
+    const bea = await join(id, "Bea");
+    const carlos = await join(id, "Carlos");
+    const roles = { host: carlos.id, player1: bea.id, player2: anaId };
+    for (const role of ["host", "player1", "player2"] as const) {
+      ana.send({ type: "assign", role, member: roles[role] });
+    }
+    ana.send({ type: "start" });
+    await nextStateWhere(bea.device, (view) => view.phase === "started");
+
+    ana.send({ type: "ready" });
+    bea.device.send({ type: "ready" });
+
+    for (const device of [ana, bea.device, carlos.device]) {
+      const view = await nextStateWhere(
+        device,
+        (each) => each.phase === "started" && each.countdownMs !== null,
+      );
+      expect(view).toMatchObject({
+        ready: { player1: true, player2: true },
         countdownMs: expect.any(Number),
       });
     }

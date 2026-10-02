@@ -77,6 +77,8 @@ const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("remove"), member: memberIdSchema }),
+  /** A Player pressing ¡Listo! after Empezar. */
+  z.object({ type: z.literal("ready") }),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -97,6 +99,8 @@ export const REJECTIONS = [
   "roles-missing",
   "member-disconnected",
   "member-connected",
+  "not-started",
+  "not-player",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -135,10 +139,14 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     ...matchViewFields,
     phase: z.literal("started"),
     firstPlayer: z.enum(PLAYER_ROLES),
+    /** Which Players have pressed ¡Listo!. */
+    ready: z.object({ player1: z.boolean(), player2: z.boolean() }),
+    /** False while the Match's Roscos are still being generated. */
+    roscosReady: z.boolean(),
     /**
      * Milliseconds left in the countdown before the first Turn, as of sending:
      * a duration, so a Device with a wrong clock still counts down right.
-     * Null while the Match's Roscos are still being generated.
+     * Null until both Players have pressed ¡Listo! and both Roscos are ready.
      */
     countdownMs: z.nullable(z.number()),
   }),

@@ -335,7 +335,7 @@ describe("assigning roles", () => {
 const WITHOUT_BEA: Context = { ...CONTEXT, connected: new Set([ANA, CARLOS]) };
 
 /** A non-Hosted Lobby with Ana as Player 1 and Bea as Player 2. */
-function ready(): MatchState {
+function playersAssigned(): MatchState {
   return withRoles(lobbyOfThree(), { player1: ANA, player2: BEA });
 }
 
@@ -362,7 +362,7 @@ describe("Empezar", () => {
   });
 
   it("is disabled while someone with a role is disconnected", () => {
-    expect(canStart(ready(), WITHOUT_BEA)).toBe(false);
+    expect(canStart(playersAssigned(), WITHOUT_BEA)).toBe(false);
   });
 
   it("doesn't wait for someone without a role", () => {
@@ -398,23 +398,22 @@ describe("the Roscos", () => {
     expect(canStart(state)).toBe(true);
   });
 
-  it("hold the countdown back after Empezar until they are ready", () => {
-    const state = accepted(waitingForRoscos(), ANA, { type: "start" });
-
-    expect(viewFor(state, BEA, CONTEXT)).toMatchObject({
-      phase: "started",
+  it("hold the countdown back until they are generated, even with both Players ready", () => {
+    const started = accepted(waitingForRoscos(), ANA, { type: "start" });
+    const bothReady = accepted(accepted(started, ANA, { type: "ready" }), BEA, {
+      type: "ready",
+    });
+    expect(viewFor(bothReady, BEA, CONTEXT)).toMatchObject({
+      roscosReady: false,
       countdownMs: null,
     });
-  });
 
-  it("start the countdown when the last one arrives", () => {
-    const started = accepted(waitingForRoscos(), ANA, { type: "start" });
-    const one = addRosco(started, ROSCO, NOW + 1000);
+    const one = addRosco(bothReady, ROSCO, NOW + 1000);
     expect(viewFor(one, BEA, CONTEXT)).toMatchObject({ countdownMs: null });
-
     const both = addRosco(one, ROSCO, NOW + 7000);
 
     expect(viewFor(both, BEA, { ...CONTEXT, now: NOW + 8000 })).toMatchObject({
+      roscosReady: true,
       countdownMs: 4000,
     });
   });
@@ -428,7 +427,7 @@ describe("the Roscos", () => {
 
 describe("starting the Match", () => {
   it("shows every Device the roles and who plays first", () => {
-    const lobby = ready();
+    const lobby = playersAssigned();
 
     const state = accepted(lobby, ANA, { type: "start" }, CONTEXT);
 
@@ -445,7 +444,7 @@ describe("starting the Match", () => {
 
   it("lets chance pick Player 2 to play first", () => {
     const state = accepted(
-      ready(),
+      playersAssigned(),
       ANA,
       { type: "start" },
       { ...CONTEXT, random: 0.99 },
@@ -456,20 +455,10 @@ describe("starting the Match", () => {
     });
   });
 
-  it("counts down 5 seconds before the first Turn", () => {
-    const state = accepted(ready(), ANA, { type: "start" });
-
-    expect(viewFor(state, ANA, CONTEXT)).toMatchObject({ countdownMs: 5000 });
-    expect(viewFor(state, ANA, { ...CONTEXT, now: NOW + 2000 })).toMatchObject({
-      countdownMs: 3000,
-    });
-    expect(viewFor(state, ANA, { ...CONTEXT, now: NOW + 9000 })).toMatchObject({
-      countdownMs: 0,
-    });
-  });
-
   it("is only for the Creator", () => {
-    expect(rejection(ready(), BEA, { type: "start" })).toBe("not-creator");
+    expect(rejection(playersAssigned(), BEA, { type: "start" })).toBe(
+      "not-creator",
+    );
   });
 
   it("needs every role assigned", () => {
@@ -482,13 +471,13 @@ describe("starting the Match", () => {
   });
 
   it("needs everyone with a role connected", () => {
-    expect(rejection(ready(), ANA, { type: "start" }, WITHOUT_BEA)).toBe(
-      "member-disconnected",
-    );
+    expect(
+      rejection(playersAssigned(), ANA, { type: "start" }, WITHOUT_BEA),
+    ).toBe("member-disconnected");
   });
 
   it("closes the Lobby", () => {
-    const state = accepted(ready(), ANA, { type: "start" });
+    const state = accepted(playersAssigned(), ANA, { type: "start" });
     const late = "00000000-0000-4000-8000-00000000000d";
 
     expect(rejection(state, late, { type: "join", name: "Dani" })).toBe(
@@ -501,9 +490,90 @@ describe("starting the Match", () => {
   });
 });
 
+describe("a Player being ready", () => {
+  /** A started Match with Ana as Player 1, Bea as Player 2 and Carlos as Host. */
+  function started(): MatchState {
+    const state = withRoles(lobbyOfThree(HOSTED), {
+      host: CARLOS,
+      player1: ANA,
+      player2: BEA,
+    });
+    return accepted(state, ANA, { type: "start" });
+  }
+
+  it("is awaited from both Players after Empezar, with no countdown yet", () => {
+    expect(viewFor(started(), CARLOS, CONTEXT)).toMatchObject({
+      phase: "started",
+      ready: { player1: false, player2: false },
+      countdownMs: null,
+    });
+  });
+
+  it("shows on every Device", () => {
+    const state = accepted(started(), BEA, { type: "ready" });
+
+    expect(viewFor(state, CARLOS, CONTEXT)).toMatchObject({
+      ready: { player1: false, player2: true },
+      countdownMs: null,
+    });
+  });
+
+  it("starts a 5 second countdown once both Players are", () => {
+    const one = accepted(started(), BEA, { type: "ready" });
+    const both = accepted(
+      one,
+      ANA,
+      { type: "ready" },
+      {
+        ...CONTEXT,
+        now: NOW + 3000,
+      },
+    );
+
+    expect(viewFor(both, ANA, { ...CONTEXT, now: NOW + 3000 })).toMatchObject({
+      ready: { player1: true, player2: true },
+      countdownMs: 5000,
+    });
+    expect(viewFor(both, ANA, { ...CONTEXT, now: NOW + 5000 })).toMatchObject({
+      countdownMs: 3000,
+    });
+    expect(viewFor(both, ANA, { ...CONTEXT, now: NOW + 99000 })).toMatchObject({
+      countdownMs: 0,
+    });
+  });
+
+  it("doesn't restart the countdown when pressed again", () => {
+    const one = accepted(started(), BEA, { type: "ready" });
+    const both = accepted(one, ANA, { type: "ready" });
+    const again = accepted(
+      both,
+      ANA,
+      { type: "ready" },
+      {
+        ...CONTEXT,
+        now: NOW + 2000,
+      },
+    );
+
+    expect(viewFor(again, ANA, { ...CONTEXT, now: NOW + 2000 })).toMatchObject({
+      countdownMs: 3000,
+    });
+  });
+
+  it("is only for the Players", () => {
+    expect(rejection(started(), CARLOS, { type: "ready" })).toBe("not-player");
+  });
+
+  it("only happens after Empezar", () => {
+    expect(rejection(playersAssigned(), ANA, { type: "ready" })).toBe(
+      "not-started",
+    );
+  });
+});
+
 describe("removing a Member", () => {
   it("takes a disconnected Member out of the Match and their role", () => {
-    const lobby = ready();
+    const lobby = playersAssigned();
 
     const state = accepted(
       lobby,
@@ -521,7 +591,7 @@ describe("removing a Member", () => {
   });
 
   it("lets their Device join again", () => {
-    const lobby = ready();
+    const lobby = playersAssigned();
     const removed = accepted(
       lobby,
       ANA,
@@ -551,7 +621,7 @@ describe("removing a Member", () => {
   });
 
   it("is only for someone who has closed the Match", () => {
-    const lobby = ready();
+    const lobby = playersAssigned();
 
     expect(
       rejection(lobby, ANA, { type: "remove", member: idOf(lobby, BEA) }),
@@ -559,7 +629,7 @@ describe("removing a Member", () => {
   });
 
   it("is only for the Creator", () => {
-    const lobby = ready();
+    const lobby = playersAssigned();
 
     expect(
       rejection(
@@ -572,8 +642,8 @@ describe("removing a Member", () => {
   });
 
   it("is only among Members", () => {
-    expect(rejection(ready(), ANA, { type: "remove", member: 999 })).toBe(
-      "unknown-member",
-    );
+    expect(
+      rejection(playersAssigned(), ANA, { type: "remove", member: 999 }),
+    ).toBe("unknown-member");
   });
 });

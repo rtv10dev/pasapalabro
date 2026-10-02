@@ -1,5 +1,6 @@
 import {
   MAX_NAME_LENGTH,
+  PLAYER_ROLES,
   type Action,
   type Creator,
   type DeviceKey,
@@ -36,7 +37,9 @@ export interface MatchState {
   /** Set when the Creator presses Empezar; null while in the Lobby. */
   start: {
     firstPlayer: PlayerRole;
-    /** In epoch milliseconds; null until both Roscos are ready. */
+    /** Which Players have pressed ¡Listo! since Empezar. */
+    ready: Record<PlayerRole, boolean>;
+    /** In epoch milliseconds; null until both Players and both Roscos are ready. */
     countdownEndsAt: number | null;
   } | null;
 }
@@ -94,12 +97,7 @@ export function addRosco(
   now: number,
 ): MatchState {
   if (missingRoscos(state) === 0) return state;
-  const next = { ...state, roscos: [...state.roscos, rosco] };
-  if (!next.start || missingRoscos(next) > 0) return next;
-  return {
-    ...next,
-    start: { ...next.start, countdownEndsAt: now + COUNTDOWN_MS },
-  };
+  return withCountdown({ ...state, roscos: [...state.roscos, rosco] }, now);
 }
 
 /** How many Roscos the Match still needs before its first Turn. */
@@ -114,6 +112,7 @@ export function act(
   action: Action,
   context: Context,
 ): Result {
+  if (action.type === "ready") return ready(state, device, context.now);
   if (state.start) return { ok: false, reason: "already-started" };
   if (action.type === "join") return join(state, device, action.name);
   if (memberOf(state, device)?.id !== state.creator) {
@@ -153,11 +152,13 @@ export function viewFor(
       canStart: whyNotStart(state, connected) === null,
     };
   }
-  const { firstPlayer, countdownEndsAt } = state.start;
+  const { firstPlayer, ready, countdownEndsAt } = state.start;
   return {
     ...common,
     phase: "started",
     firstPlayer,
+    ready,
+    roscosReady: missingRoscos(state) === 0,
     countdownMs:
       countdownEndsAt === null ? null : Math.max(0, countdownEndsAt - now),
   };
@@ -231,17 +232,49 @@ function start(state: MatchState, context: Context): Result {
       ...state,
       start: {
         firstPlayer: context.random < 0.5 ? "player1" : "player2",
-        // Without both Roscos, the countdown waits for the last one.
-        countdownEndsAt:
-          missingRoscos(state) === 0 ? context.now + COUNTDOWN_MS : null,
+        ready: { player1: false, player2: false },
+        countdownEndsAt: null,
       },
     },
   };
 }
 
+/** A Player pressing ¡Listo! after Empezar; pressing it again changes nothing. */
+function ready(state: MatchState, device: DeviceKey, now: number): Result {
+  const { start } = state;
+  if (!start) return { ok: false, reason: "not-started" };
+  const member = memberOf(state, device);
+  const role = PLAYER_ROLES.find((each) => state.roles[each] === member?.id);
+  if (!member || !role) return { ok: false, reason: "not-player" };
+  if (start.ready[role]) return { ok: true, state };
+  return {
+    ok: true,
+    state: withCountdown(
+      {
+        ...state,
+        start: { ...start, ready: { ...start.ready, [role]: true } },
+      },
+      now,
+    ),
+  };
+}
+
+/**
+ * Starts the countdown to the first Turn at `now`, if Empezar was pressed and
+ * both Players and both Roscos have just become ready.
+ */
+function withCountdown(state: MatchState, now: number): MatchState {
+  const { start } = state;
+  if (!start || start.countdownEndsAt !== null) return state;
+  const playersReady = PLAYER_ROLES.every((role) => start.ready[role]);
+  if (!playersReady || missingRoscos(state) > 0) return state;
+  return { ...state, start: { ...start, countdownEndsAt: now + COUNTDOWN_MS } };
+}
+
 /**
  * Why Empezar can't be pressed yet; null if it can. The Roscos don't have
- * to be ready: the countdown after Empezar waits for them.
+ * to be ready: the countdown after Empezar waits for them, and for the
+ * Players to press ¡Listo!.
  */
 function whyNotStart(
   { settings, roles, members }: MatchState,

@@ -94,7 +94,7 @@ describe("the Stock", () => {
 
     const { view } = await startMatch();
 
-    expect(view.countdownMs).toEqual(expect.any(Number));
+    expect(view.roscosReady).toBe(true);
     expect(geminiRequests).toBe(5);
   });
 
@@ -109,7 +109,7 @@ describe("the Stock", () => {
     const { view } = await startMatch();
 
     expect(refused.status).toBe(400);
-    expect(view.countdownMs).toEqual(expect.any(Number));
+    expect(view.roscosReady).toBe(true);
   });
 
   it("stops asking for Roscos once every Difficulty has enough", async () => {
@@ -124,19 +124,19 @@ describe("the Stock", () => {
 });
 
 describe("a Match the Stock has no Roscos for", () => {
-  it("starts the countdown after Empezar only once its Roscos are generated", async () => {
+  it("shows them loading after Empezar until they are generated", async () => {
     holdGemini();
     const { bea, view } = await startMatch();
 
-    expect(view.countdownMs).toBeNull();
+    expect(view.roscosReady).toBe(false);
 
     letGeminiAnswer();
 
     const ready = await nextStateWhere(
       bea,
-      (each) => each.phase === "started" && each.countdownMs !== null,
+      (each) => each.phase === "started" && each.roscosReady,
     );
-    expect(ready).toMatchObject({ countdownMs: expect.any(Number) });
+    expect(ready.phase).toBe("started");
     expect(geminiRequests).toBe(2);
   });
 });
