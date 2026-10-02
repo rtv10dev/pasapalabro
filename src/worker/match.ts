@@ -24,7 +24,12 @@ import { stockOf } from "./stock";
 
 // WebSocket close codes (RFC 6455, section 7.4.1).
 const NORMAL_CLOSURE = 1000;
-const NO_STATUS_RECEIVED = 1005;
+/**
+ * Codes that report what happened to a connection but that no endpoint may
+ * send: no code given (1005), the connection broke with no close frame
+ * (1006), and a failed TLS handshake (1015).
+ */
+const RESERVED_CLOSE_CODES: readonly number[] = [1005, 1006, 1015];
 
 const STATE_KEY = "state";
 
@@ -171,9 +176,12 @@ export class Match extends DurableObject<Env> {
     reason: string,
   ): void {
     this.leave(closed);
-    // The runtime doesn't answer the Device's close frame for us. 1005 means
-    // the Device sent no code, and it can't be sent back.
-    closed.close(code === NO_STATUS_RECEIVED ? NORMAL_CLOSURE : code, reason);
+    // The runtime doesn't answer the Device's close frame for us. A reserved
+    // code can't be sent back, so the answer is a normal closure.
+    closed.close(
+      RESERVED_CLOSE_CODES.includes(code) ? NORMAL_CLOSURE : code,
+      reason,
+    );
   }
 
   override webSocketError(failed: WebSocket): void {

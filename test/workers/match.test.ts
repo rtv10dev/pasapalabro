@@ -1,3 +1,5 @@
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { ServerMessage, Settings } from "../../src/shared/protocol";
 import {
@@ -139,6 +141,22 @@ describe("a Device following a Match", () => {
     const device = await connectDevice(id);
 
     expect(await device.disconnect()).toBe(1000);
+  });
+
+  it("has its broken connection closed without an error", async () => {
+    const { id } = await createMatch();
+    await connectDevice(id);
+    const stub = env.MATCH.get(env.MATCH.idFromString(id));
+
+    // The runtime reports a connection that broke with no close frame (a
+    // phone locked, Wi-Fi gone) as 1006, a code no endpoint may send back.
+    const closing = runInDurableObject(stub, (match, state) => {
+      const [socket] = state.getWebSockets();
+      if (!socket) throw new Error("No socket");
+      match.webSocketClose(socket, 1006, "");
+    });
+
+    await expect(closing).resolves.toBeUndefined();
   });
 
   it("only sees Members of its own Match", async () => {
