@@ -27,3 +27,40 @@ export interface Clue {
 
 /** One Clue per letter, in the order of LETTERS. */
 export type Rosco = Clue[];
+
+/**
+ * Up to `count` of the Roscos, in order, no two of which share an answer:
+ * one that would is skipped and left with the rest.
+ */
+export function apart(
+  roscos: readonly Rosco[],
+  count: number,
+): { picked: Rosco[]; rest: Rosco[] } {
+  const picked: Rosco[] = [];
+  const rest: Rosco[] = [];
+  for (const rosco of roscos) {
+    if (
+      picked.length < count &&
+      !picked.some((each) => shareAnswer(each, rosco))
+    ) {
+      picked.push(rosco);
+    } else rest.push(rosco);
+  }
+  return { picked, rest };
+}
+
+/** Whether the two Roscos have an answer in common, compared normalized; other answers don't count. */
+export function shareAnswer(one: Rosco, other: Rosco): boolean {
+  const answers = new Set(one.map(({ answer }) => normalize(answer.trim())));
+  return other.some(({ answer }) => answers.has(normalize(answer.trim())));
+}
+
+/** Lower case and without accents, but with Ñ kept apart from N. */
+export function normalize(text: string): string {
+  return text
+    .normalize("NFC")
+    .toLocaleLowerCase("es")
+    .split("ñ")
+    .map((part) => part.normalize("NFD").replace(/\p{M}/gu, ""))
+    .join("ñ");
+}

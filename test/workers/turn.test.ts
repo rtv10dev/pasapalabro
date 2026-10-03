@@ -5,6 +5,7 @@ import {
   firstTurn as firstTurnOf,
   isPlaying,
   nextPlaying,
+  ROSCOS,
   type Device,
 } from "./helpers";
 
@@ -44,7 +45,10 @@ describe("the Turns of a Match", () => {
       player,
       (view) => view.stage === "handover",
     );
-    expect(handover.revealed).toEqual({ letter: "B", answer: "ballena" });
+    expect(handover.revealed).toEqual({
+      letter: "B",
+      answer: ROSCOS[first][1]?.answer,
+    });
     expect(handover.roscos[first].letters.slice(0, 3)).toEqual([
       { letter: "A", result: "hit" },
       { letter: "B", result: "miss" },
@@ -57,7 +61,10 @@ describe("the Turns of a Match", () => {
     const next = await nextPlaying(player, (view) => view.stage === "waiting");
     expect(next.turn).not.toBe(first);
     expect(next.turnHost).toBe(next.you);
-    expect(next.clue).toMatchObject({ letter: "A", answer: "abeja" });
+    expect(next.clue).toMatchObject({
+      letter: "A",
+      answer: ROSCOS[next.turn][0]?.answer,
+    });
   });
 
   it("end when the running Clock's alarm runs", async () => {

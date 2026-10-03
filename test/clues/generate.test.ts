@@ -5,6 +5,7 @@ import {
   type ClueRequest,
   type Provider,
 } from "../../src/clues/generate";
+import { promptFor } from "../../src/clues/prompt";
 import { LETTERS, type Letter, type Rosco } from "../../src/shared/rosco";
 import { modelClue, modelReply } from "../fixtures/clues";
 
@@ -164,6 +165,42 @@ describe("generateRosco", () => {
     expect(gemini.requests[1]?.letters).toEqual(["B", "Ñ"]);
     expect(gemini.requests[1]?.avoid).toHaveLength(23);
     expect(gemini.requests[1]?.avoid).toContain("abeja");
+  });
+
+  it("avoids the answers it is given, on top of those already in the Rosco", async () => {
+    // The Match's other Rosco has "abeja" and "Ballena"; this model uses
+    // "abeja" anyway the first time.
+    const fresh = { A: "avispa", B: "búho" } as const;
+    const gemini = scripted("gemini", [
+      goodModel,
+      (request) =>
+        modelReply(
+          request.letters.map((letter) =>
+            modelClue(letter, letter === "A" ? fresh.A : fresh.B),
+          ),
+        ),
+    ]);
+
+    const rosco = await generateRosco(
+      "normal",
+      { providers: [gemini], random: () => 0.5, sleep: noSleep },
+      ["abeja", "Ballena"],
+    );
+
+    expect(gemini.requests[0]?.avoid).toEqual(["abeja", "Ballena"]);
+    expect(promptFor(gemini.requests[0]!).user).toContain(
+      "No uses ninguna de estas respuestas: abeja, Ballena.",
+    );
+    // Both answers were refused as repeated, so their letters are asked again.
+    expect(gemini.requests[1]?.letters).toEqual(["A", "B"]);
+    expect(gemini.requests[1]?.avoid).toEqual(
+      expect.arrayContaining(["abeja", "Ballena", "caracol"]),
+    );
+    expect(gemini.requests[1]?.avoid).toHaveLength(25);
+    expect(rosco.slice(0, 2).map((clue) => clue.answer)).toEqual([
+      fresh.A,
+      fresh.B,
+    ]);
   });
 
   it("gives up after three rounds with a Clue still failing", async () => {

@@ -1,4 +1,9 @@
-import { CONTAINS_LETTERS, type Clue, type Letter } from "../shared/rosco";
+import {
+  CONTAINS_LETTERS,
+  normalize,
+  type Clue,
+  type Letter,
+} from "../shared/rosco";
 
 /** Why a generated Clue can't go into a Rosco. */
 export type ClueProblem =
@@ -50,14 +55,4 @@ function followsLetterRule(
   const wanted = normalize(letter);
   if (!contains) return answer.startsWith(wanted);
   return CONTAINS_LETTERS.includes(letter) && answer.includes(wanted);
-}
-
-/** Lower case and without accents, but with Ñ kept apart from N. */
-function normalize(text: string): string {
-  return text
-    .normalize("NFC")
-    .toLocaleLowerCase("es")
-    .split("ñ")
-    .map((part) => part.normalize("NFD").replace(/\p{M}/gu, ""))
-    .join("ñ");
 }

@@ -11,6 +11,7 @@ import {
   nextChange,
   rematch,
   silent,
+  answersInMatch,
   tick,
   viewFor,
   type MatchState,
@@ -132,26 +133,34 @@ export class Match extends DurableObject<Env> {
 
   /**
    * Generates the missing Roscos, both at once so the Players wait for one
-   * generation, not two. Keeps any that succeed, and tries again a minute
-   * later while some are missing: the first Turn can't begin without them.
+   * generation, not two, each avoiding the answers of a Rosco the Match
+   * already has. Keeps any that succeed. Two generated together may still
+   * share an answer, and then the second is refused: the next alarm, right
+   * away, generates one that avoids the first. When a model failed it tries
+   * again a minute later. The first Turn can't begin until both are here.
    */
   private async generateRoscos(before: MatchState): Promise<void> {
+    const avoid = answersInMatch(before);
     const results = await Promise.allSettled(
       Array.from({ length: missingRoscos(before) }, () =>
-        generateRosco(before.settings.difficulty, generation(this.env)),
+        generateRosco(before.settings.difficulty, generation(this.env), avoid),
       ),
     );
     // Members may have joined while the Roscos were being generated.
     let state = this.load() ?? before;
+    let failed = false;
     for (const result of results) {
       if (result.status === "fulfilled") {
         state = addRosco(state, result.value, Date.now());
-      } else console.error("Couldn't generate a Rosco", result.reason);
+      } else {
+        failed = true;
+        console.error("Couldn't generate a Rosco", result.reason);
+      }
     }
     this.save(state);
     this.broadcast(state, this.sockets());
     if (missingRoscos(state) > 0) {
-      await this.setAlarm(Date.now() + GENERATION_RETRY_MS);
+      await this.setAlarm(Date.now() + (failed ? GENERATION_RETRY_MS : 0));
     } else await this.setNextAlarm(state, Date.now());
   }
 

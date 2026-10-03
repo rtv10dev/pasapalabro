@@ -20,7 +20,7 @@ import {
   type TurnStage,
   type Verdict,
 } from "../shared/protocol";
-import type { Rosco } from "../shared/rosco";
+import { shareAnswer, type Rosco } from "../shared/rosco";
 
 interface Member {
   id: MemberId;
@@ -163,7 +163,9 @@ export function newMatch(settings: Settings, creator: Creator): Result {
 
 /**
  * Gives the Match one of its Roscos, arriving at `now`; ignored once it has
- * both. The last one starts the countdown if Empezar was already pressed.
+ * both, and refused if it shares an answer with the one it has, so
+ * hearing the other Player's Clues never gives an answer away. The last one
+ * starts the countdown if Empezar was already pressed.
  */
 export function addRosco(
   state: MatchState,
@@ -171,7 +173,13 @@ export function addRosco(
   now: number,
 ): MatchState {
   if (missingRoscos(state) === 0) return state;
+  if (state.roscos.some((each) => shareAnswer(each, rosco))) return state;
   return withCountdown({ ...state, roscos: [...state.roscos, rosco] }, now);
+}
+
+/** The answers of the Roscos the Match has, which a Rosco it adds can't share. */
+export function answersInMatch({ roscos }: MatchState): string[] {
+  return roscos.flatMap((rosco) => rosco.map(({ answer }) => answer));
 }
 
 /** How many Roscos the Match still needs before its first Turn. */

@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { DIFFICULTIES, type Difficulty } from "../shared/protocol";
-import type { Rosco } from "../shared/rosco";
+import { apart, type Rosco } from "../shared/rosco";
 
 /** How many Roscos of each Difficulty the Stock keeps: enough for two Matches. */
 const ROSCOS_PER_DIFFICULTY = 4;
@@ -16,11 +16,15 @@ export function stockOf(env: Env): DurableObjectStub<Stock> {
  * One Durable Object for all Matches, so no two Matches take the same Rosco.
  */
 export class Stock extends DurableObject<Env> {
-  /** Removes and returns up to `count` Roscos of the Difficulty, oldest first. */
+  /**
+   * Removes and returns up to `count` Roscos of the Difficulty, oldest
+   * first, no two of which share an answer: one that would is skipped and
+   * kept for a later Match.
+   */
   take(difficulty: Difficulty, count: number): Rosco[] {
-    const roscos = this.load(difficulty);
-    this.save(difficulty, roscos.slice(count));
-    return roscos.slice(0, count);
+    const { picked, rest } = apart(this.load(difficulty), count);
+    this.save(difficulty, rest);
+    return picked;
   }
 
   add(difficulty: Difficulty, rosco: Rosco): void {

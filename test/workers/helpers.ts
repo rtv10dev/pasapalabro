@@ -45,16 +45,25 @@ export function newDeviceKey(): DeviceKey {
   return crypto.randomUUID();
 }
 
-const ROSCO: Rosco = LETTERS.map((letter) => {
-  const { type, clue, answer } = modelClue(letter);
-  return {
-    letter,
-    contains: type === "contiene",
-    text: clue,
-    answer,
-    veryHard: false,
-  };
-});
+/** A Rosco whose answers are the fixture's, each changed by `answerOf`. */
+export function rosco(answerOf: (answer: string) => string = (a) => a): Rosco {
+  return LETTERS.map((letter) => {
+    const { type, clue, answer } = modelClue(letter);
+    return {
+      letter,
+      contains: type === "contiene",
+      text: clue,
+      answer: answerOf(answer),
+      veryHard: false,
+    };
+  });
+}
+
+/** The Roscos `stockUp` gives a Match, by the Player who gets each; they share no answer. */
+export const ROSCOS: Record<PlayerRole, Rosco> = {
+  player1: rosco(),
+  player2: rosco((answer) => `otra${answer}`),
+};
 
 /**
  * Creates a Match through the API; returns its id and the Creator's Device.
@@ -71,8 +80,8 @@ export async function createMatch(
 /** Puts two Roscos of the settings' Difficulty in the Stock: enough for one Match. */
 export async function stockUp(settings: Settings = UNHOSTED): Promise<void> {
   const stock = stockOf(env);
-  await stock.add(settings.difficulty, ROSCO);
-  await stock.add(settings.difficulty, ROSCO);
+  await stock.add(settings.difficulty, ROSCOS.player1);
+  await stock.add(settings.difficulty, ROSCOS.player2);
 }
 
 /** Creates a Match through the API with the Stock as it is. */

@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/worker";
 import { stockOf } from "../../src/worker/stock";
 import type { MatchView } from "../../src/shared/protocol";
-import { GOOD_REPLY } from "../fixtures/clues";
+import { LETTERS } from "../../src/shared/rosco";
+import { modelClue, modelReply } from "../fixtures/clues";
 import {
   connectDevice,
   createMatchAsIs,
@@ -12,27 +13,65 @@ import {
   newDeviceKey,
   nextStateWhere,
   postMatch,
+  rosco,
+  ROSCOS,
   UNHOSTED,
   type Device,
 } from "./helpers";
 
 const GEMINI = "https://generativelanguage.googleapis.com/";
 
-/** Gemini, faked: answers every request with a valid Rosco, once let through. */
+/**
+ * Gemini, faked: answers every request with a valid Rosco, once let through.
+ * Like a real model it writes new answers each time, unless `repeating`;
+ * either way it never uses the answers the prompt tells it to avoid.
+ */
 let geminiRequests: number;
+/** The answers each request told Gemini to avoid, in order. */
+let avoided: string[][];
+let repeating: boolean;
 let letGeminiAnswer: () => void;
+
+/** A valid answer for every letter: the fixture's, plus `variant` "s"s. */
+function replyWith(avoid: string[], variant: number): string {
+  return modelReply(
+    LETTERS.map((letter) => {
+      const base = modelClue(letter).answer;
+      let answer = base + "s".repeat(variant);
+      for (let more = variant + 1; avoid.includes(answer); more++) {
+        answer = base + "s".repeat(more);
+      }
+      return modelClue(letter, answer);
+    }),
+  );
+}
+
+/** The answers the prompt in a request body tells the model not to use. */
+function avoidIn(body: unknown): string[] {
+  const line = /No uses ninguna de estas respuestas: ([^"]*)\./.exec(
+    typeof body === "string" ? body : "",
+  );
+  return line?.[1]?.split(", ") ?? [];
+}
 
 beforeEach(async () => {
   geminiRequests = 0;
+  avoided = [];
+  repeating = false;
   let answering = Promise.resolve();
   letGeminiAnswer = () => undefined;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     if (!url.startsWith(GEMINI)) throw new Error(`Unexpected fetch: ${url}`);
+    const avoid = avoidIn(init?.body);
+    avoided.push(avoid);
+    const variant = repeating ? 0 : geminiRequests;
     geminiRequests++;
     await answering;
     return Response.json({
-      candidates: [{ content: { parts: [{ text: GOOD_REPLY }] } }],
+      candidates: [
+        { content: { parts: [{ text: replyWith(avoid, variant) }] } },
+      ],
     });
   });
   // Each test starts with an empty Stock.
@@ -112,6 +151,23 @@ describe("the Stock", () => {
     expect(view.roscosReady).toBe(true);
   });
 
+  it("never hands out two Roscos that share an answer, and keeps the one it skips", async () => {
+    const stock = stockOf(env);
+    // Shares "gato" with Player 1's Rosco, in another case.
+    const clashing = rosco((answer) =>
+      answer === "gato" ? "GATO" : `más${answer}`,
+    );
+    await stock.add("normal", ROSCOS.player1);
+    await stock.add("normal", clashing);
+    await stock.add("normal", ROSCOS.player2);
+
+    expect(await stock.take("normal", 2)).toEqual([
+      ROSCOS.player1,
+      ROSCOS.player2,
+    ]);
+    expect(await stock.take("normal", 2)).toEqual([clashing]);
+  });
+
   it("stops asking for Roscos once every Difficulty has enough", async () => {
     for (let run = 0; run < 20; run++) await runCron();
     const asked = geminiRequests;
@@ -138,5 +194,41 @@ describe("a Match the Stock has no Roscos for", () => {
     );
     expect(ready.phase).toBe("started");
     expect(geminiRequests).toBe(2);
+  });
+
+  it("has the second Rosco avoid the first one's answers when the Stock had only one", async () => {
+    await stockOf(env).add("normal", ROSCOS.player1);
+    // Gemini would write Player 1's answers again if not told to avoid them.
+    repeating = true;
+
+    const { bea, view } = await startMatch();
+    const ready = view.roscosReady
+      ? view
+      : await nextStateWhere(
+          bea,
+          (each) => each.phase === "started" && each.roscosReady,
+        );
+
+    expect(ready.phase).toBe("started");
+    expect(geminiRequests).toBe(1);
+    expect(avoided[0]).toEqual(ROSCOS.player1.map(({ answer }) => answer));
+  });
+
+  it("replaces a Rosco generated alongside the other with the same answers", async () => {
+    repeating = true;
+    holdGemini();
+    const { bea } = await startMatch();
+
+    letGeminiAnswer();
+
+    await nextStateWhere(
+      bea,
+      (each) => each.phase === "started" && each.roscosReady,
+    );
+    expect(geminiRequests).toBe(3);
+    expect(avoided.slice(0, 2)).toEqual([[], []]);
+    expect(avoided[2]).toEqual(
+      LETTERS.map((letter) => modelClue(letter).answer),
+    );
   });
 });

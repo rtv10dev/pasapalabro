@@ -50,9 +50,15 @@ const ROSCO: Rosco = LETTERS.map((letter) => ({
   veryHard: false,
 }));
 
+/** A Rosco that shares no answer with ROSCO, so both can be in one Match. */
+const OTHER_ROSCO: Rosco = ROSCO.map((clue) => ({
+  ...clue,
+  answer: `${clue.letter}otrarespuesta`,
+}));
+
 /** Both Roscos with two other answers for every Clue. */
-const WITH_OTHERS: Rosco[] = Array.from({ length: 2 }, () =>
-  ROSCO.map((clue) => ({
+const WITH_OTHERS: Rosco[] = [ROSCO, OTHER_ROSCO].map((rosco) =>
+  rosco.map((clue) => ({
     ...clue,
     otherAnswers: [`${clue.letter}alternativa`, `${clue.letter}sinónimo`],
   })),
@@ -61,7 +67,7 @@ const WITH_OTHERS: Rosco[] = Array.from({ length: 2 }, () =>
 /** A Match created with the given Roscos: both, unless a test says otherwise. */
 function created(
   settings: Settings = UNHOSTED,
-  roscos: Rosco[] = [ROSCO, ROSCO],
+  roscos: Rosco[] = [ROSCO, OTHER_ROSCO],
 ): MatchState {
   const result = newMatch(settings, { name: "Ana", device: ANA });
   if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
@@ -429,12 +435,43 @@ describe("the Roscos", () => {
 
     const one = addRosco(bothReady, ROSCO, NOW + 1000);
     expect(viewFor(one, BEA, CONTEXT)).toMatchObject({ countdownMs: null });
-    const both = addRosco(one, ROSCO, NOW + 7000);
+    const both = addRosco(one, OTHER_ROSCO, NOW + 7000);
 
     expect(viewFor(both, BEA, { ...CONTEXT, now: NOW + 8000 })).toMatchObject({
       roscosReady: true,
       countdownMs: 4000,
     });
+  });
+
+  it("never share an answer: one that does is refused and still missing", () => {
+    const one = addRosco(created(UNHOSTED, []), ROSCO, NOW);
+    // The same answer for one letter, in another case and with accents.
+    const clashing = OTHER_ROSCO.map((clue) =>
+      clue.letter === "M" ? { ...clue, answer: "MRÉSPUESTA" } : clue,
+    );
+
+    const refused = addRosco(one, clashing, NOW);
+
+    expect(refused).toBe(one);
+    expect(missingRoscos(refused)).toBe(1);
+    expect(missingRoscos(addRosco(refused, OTHER_ROSCO, NOW))).toBe(0);
+  });
+
+  it("tell Ñ apart from N when comparing answers", () => {
+    const withN = ROSCO.map((clue) =>
+      clue.letter === "N" ? { ...clue, answer: "pena" } : clue,
+    );
+    const withÑ = OTHER_ROSCO.map((clue) =>
+      clue.letter === "Ñ" ? { ...clue, answer: "peña" } : clue,
+    );
+
+    const both = addRosco(
+      addRosco(created(UNHOSTED, []), withN, NOW),
+      withÑ,
+      NOW,
+    );
+
+    expect(missingRoscos(both)).toBe(0);
   });
 
   it("never reach the Devices before the Match starts", () => {
@@ -1078,7 +1115,7 @@ describe("the Player left once the other has finished", () => {
 
     expect(playingView(state, BEA, lastVerdict)).toMatchObject({
       stage: "handover",
-      revealed: { letter: "Z", answer: "Zrespuesta" },
+      revealed: { letter: "Z", answer: "Zotrarespuesta" },
     });
     expect(playingView(state, BEA, lastVerdict + 5000)).toMatchObject({
       stage: "over",
@@ -1157,7 +1194,7 @@ describe("the current Clue", () => {
         letter: "B",
         contains: false,
         text: "Definición de la B",
-        answer: "Brespuesta",
+        answer: "Botrarespuesta",
         result: "miss",
       });
       expect(JSON.stringify(results)).not.toContain("alternativa");
@@ -1412,7 +1449,7 @@ describe("Revancha", () => {
     const { rematchState: next } = rematched();
     expect(missingRoscos(next)).toBe(2);
 
-    const withRoscos = addRosco(addRosco(next, ROSCO, NOW), ROSCO, NOW);
+    const withRoscos = addRosco(addRosco(next, ROSCO, NOW), OTHER_ROSCO, NOW);
     const ready = accepted(accepted(withRoscos, ANA, { type: "ready" }), BEA, {
       type: "ready",
     });

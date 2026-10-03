@@ -9,7 +9,10 @@ export interface ClueRequest {
   letters: readonly Letter[];
   /** The letters, among the asked ones or not, that get a very hard Clue. */
   veryHard: readonly Letter[];
-  /** Answers already in the Rosco, which the model must not use again. */
+  /**
+   * Answers the model must not use: those already in the Rosco, and those
+   * it was told to avoid, such as the answers of the Match's other Rosco.
+   */
   avoid: readonly string[];
 }
 
@@ -67,25 +70,32 @@ const replySchema = z.object({
 /**
  * Generates a Rosco of the given Difficulty whose Clues all pass the checks,
  * asking again for the failing ones; throws if some still fail after the
- * last round.
+ * last round. None of its answers is one of `avoid`.
  */
 export async function generateRosco(
   difficulty: Difficulty,
   { providers, random, sleep }: Generation,
+  avoid: readonly string[] = [],
 ): Promise<Rosco> {
   const veryHard = drawVeryHard(random);
   const accepted = new Map<Letter, Candidate>();
+  const used = () => [
+    ...avoid,
+    ...[...accepted.values()].map(({ answer }) => answer),
+  ];
   for (let round = 0; round < ROUNDS; round++) {
     const letters = LETTERS.filter((letter) => !accepted.has(letter));
     if (letters.length === 0) break;
-    const avoid = [...accepted.values()].map(({ answer }) => answer);
     const written = candidatesIn(
-      await ask({ difficulty, letters, veryHard, avoid }, providers, sleep),
+      await ask(
+        { difficulty, letters, veryHard, avoid: used() },
+        providers,
+        sleep,
+      ),
     );
     for (const letter of letters) {
       const candidate = written.get(letter);
-      const answers = [...accepted.values()].map(({ answer }) => answer);
-      if (candidate && !checkClue(candidate, answers)) {
+      if (candidate && !checkClue(candidate, used())) {
         accepted.set(letter, {
           ...candidate,
           otherAnswers: checkedOtherAnswers(candidate),
