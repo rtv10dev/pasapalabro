@@ -34,6 +34,11 @@ How a Match ended, shown on every Device once both Players have finished: each P
 _UI_: Resultados (¡Gana …! / ¡Empate!)
 _Avoid_: Score, scoreboard, leaderboard
 
+**Tally**:
+Each Player's Hits, Misses and Clock so far, which the Host of a Hosted Match can show on every Device for a few seconds before a Turn.
+_UI_: Marcador
+_Avoid_: Score, scoreboard
+
 **Rematch**:
 A new Match with the same settings and the same people as one that just ended.
 _UI_: Revancha
@@ -60,12 +65,12 @@ _UI_: Espejo
 _Avoid_: Camera view, selfie mode
 
 **Rosco**:
-A wheel of one Clue per letter of the Spanish alphabet that a Player must work through against the clock.
+A wheel of one Clue per letter of the Spanish alphabet that a Player must work through against the clock; the two Roscos of a Match never share an answer.
 _UI_: Rosco
 _Avoid_: Wheel, board, round
 
 **Clue**:
-The statement whose answer starts with, or contains, a given letter of the Rosco.
+The statement whose answer starts with, or contains, a given letter of the Rosco; it may also list other answers with that letter that the Host can accept.
 _UI_: Definición
 _Avoid_: Definition, question, hint
 
@@ -85,7 +90,7 @@ _UI_: Turno
 _Avoid_: Round, go
 
 **Handover**:
-The short countdown between two Turns, during which a Miss's answer is shown on every Device and, in a Match that isn't Hosted, the Players swap who plays and who is Host.
+The short countdown between two Turns, during which a Miss's answer is shown on every Device and, unless the other Player has finished, the Turn passes to them; in a Match that isn't Hosted, the Players then also swap who plays and who is Host.
 _UI_: Cambio de turno
 _Avoid_: Transition, pause, break
 
@@ -105,7 +110,7 @@ _UI_: Acierto
 _Avoid_: Correct, point
 
 **Miss**:
-An answer the Host judges wrong; the answer is revealed and the Turn passes to the other Player.
+An answer the Host judges wrong; the answer is revealed and the Turn ends, passing to the other Player, or, once they have finished, stopping until the Host starts this Player's next Turn.
 _UI_: Fallo
 _Avoid_: Error, wrong
 
