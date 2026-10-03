@@ -4,5 +4,9 @@
     "lib": ["es2024"],
     "types": []
   },
-  "include": [".", "../../src/client/mirror-geometry.ts"]
+  "include": [
+    ".",
+    "../../src/client/mirror-geometry.ts",
+    "../../src/client/judged-sound.ts"
+  ]
 }

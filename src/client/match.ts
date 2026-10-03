@@ -24,8 +24,10 @@ import {
 import { LETTERS } from "../shared/rosco";
 import { deviceKeyFor, rememberDeviceKey } from "./device-key";
 import { h, showStatus } from "./dom";
+import { judgedSound } from "./judged-sound";
 import { mirror, startCamera, stopCamera } from "./mirror";
 import { rememberShowAnswers, showsAnswers } from "./show-answers";
+import { playSound, stopTicks, tickLastSeconds, unlockAudio } from "./sound";
 
 type Send = (action: Action) => void;
 
@@ -86,6 +88,11 @@ let intervals: number[] = [];
  * their own Turn comes.
  */
 let following = false;
+/**
+ * The view last rendered, to tell what the Host just judged; null after a
+ * reload or a lost connection, so no sound replays.
+ */
+let previousView: MatchView | null = null;
 
 export function followMatch(matchId: string): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -104,12 +111,15 @@ export function followMatch(matchId: string): void {
     window.clearTimeout(retry);
     const opened = new WebSocket(url);
     socket = opened;
+    previousView = null;
     opened.addEventListener("message", (event) => {
       receive(event, send, device, matchId);
     });
     opened.addEventListener("close", () => {
       if (socket !== opened) return;
       socket = null;
+      // The Match pauses without this Device, whose Clock no longer counts.
+      stopTicks();
       showStatus("Sin conexión. Reconectando…");
       // A hidden page doesn't ping, so the Match would drop it again: it
       // follows the Match again once back on screen.
@@ -127,6 +137,8 @@ export function followMatch(matchId: string): void {
       socket.send(PING);
     }
   }, PING_MS);
+  // ¡Listo! unlocks the audio; after a reload, the next tap anywhere does.
+  document.addEventListener("click", unlockAudio);
   // Back online: no need to wait for the next try.
   window.addEventListener("online", () => {
     if (socket === null) connect();
@@ -171,6 +183,12 @@ function receive(
   }
   showStatus("");
   render(view, send, matchId);
+  const sound = judgedSound(previousView, view);
+  previousView = view;
+  if (sound) playSound(sound);
+  if (isYourClockRunning(view)) {
+    tickLastSeconds(view.roscos[view.turn].clockMs);
+  } else stopTicks();
 }
 
 /**
@@ -186,6 +204,17 @@ function render(view: MatchView, send: Send, matchId: MatchId): void {
   for (const interval of intervals) window.clearInterval(interval);
   intervals = [];
   root?.replaceChildren(...screen(view, send, matchId));
+}
+
+/** Whether this Device is the playing Player's, with their Clock running. */
+function isYourClockRunning(view: MatchView): view is PlayingView {
+  return (
+    view.phase === "playing" &&
+    view.stage === "running" &&
+    view.pause === null &&
+    view.you !== null &&
+    view.roles[view.turn] === view.you
+  );
 }
 
 function screen(view: MatchView, send: Send, matchId: MatchId): Node[] {
