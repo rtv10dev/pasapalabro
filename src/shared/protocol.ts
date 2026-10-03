@@ -239,6 +239,12 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     stage: z.enum(TURN_STAGES),
     /** Milliseconds left in the Handover, as of sending; null outside one. */
     handoverMs: z.nullable(z.number()),
+    /**
+     * The Player whose Turn the Handover follows: `turn` itself when the
+     * Turn stays with them because the other Player has finished. Null
+     * outside one.
+     */
+    handoverFrom: z.nullable(z.enum(PLAYER_ROLES)),
     roscos: z.object({ player1: roscoViewSchema, player2: roscoViewSchema }),
     /**
      * The current Clue, its answer and the other answers the Host can accept:

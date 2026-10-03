@@ -79,6 +79,38 @@ describe("the Turns of a Match", () => {
     expect(view.roscos[first]).toMatchObject({ clockMs: 0, finished: true });
   });
 
+  it("stay with the Player left after a Fallo, handed back by alarm once the other has finished", async () => {
+    const { id, player, host, first } = await firstTurn();
+    await nextPlaying(host);
+    host.send({ type: "begin-turn" });
+    await nextPlaying(host, (view) => view.stage === "running");
+    // The first Player's Clock runs out, then the Handover ends.
+    expect(await fireAlarm(id)).toBe(true);
+    expect(await fireAlarm(id)).toBe(true);
+    await nextPlaying(player, (view) => view.stage === "waiting");
+
+    // The first Player, now finished, hosts the one left.
+    player.send({ type: "begin-turn" });
+    player.send({ type: "judge", verdict: "miss" });
+    const handover = await nextPlaying(
+      host,
+      (view) => view.stage === "handover" && view.revealed !== null,
+    );
+    const left = handover.turn;
+    expect(left).not.toBe(first);
+    expect(handover.revealed).toEqual({
+      letter: "A",
+      answer: ROSCOS[left][0]?.answer,
+    });
+
+    expect(await fireAlarm(id)).toBe(true);
+
+    const next = await nextPlaying(player, (view) => view.stage === "waiting");
+    expect(next.turn).toBe(left);
+    expect(next.turnHost).toBe(next.you);
+    expect(next.roscos[left].finished).toBe(false);
+  });
+
   it("never send the playing Player the Clue or its answer before it is revealed", async () => {
     const { player, host } = await firstTurn();
     const received: MatchView[] = [];

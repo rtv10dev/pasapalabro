@@ -1010,6 +1010,7 @@ describe("a Player finishing", () => {
     expect(atZero).toMatchObject({
       stage: "handover",
       turn: "player2",
+      handoverFrom: "player1",
       handoverMs: 5000,
       revealed: null,
     });
@@ -1070,26 +1071,134 @@ describe("a Player finishing", () => {
 });
 
 describe("the Player left once the other has finished", () => {
-  /** Ana's Clock ran out; Bea's Turn, judged by Ana, has just begun. */
+  /**
+   * Ana's Clock ran out; Bea's Turn, judged by Ana (by Carlos if Hosted),
+   * has just begun.
+   */
   const BEA_BEGINS = CLOCK_OUT + 5000;
-  function onlyBeaLeft(): MatchState {
-    return accepted(turnBegun(), ANA, { type: "begin-turn" }, at(BEA_BEGINS));
+  function onlyBeaLeft(settings: Settings = UNHOSTED): MatchState {
+    const host = settings.hosted ? CARLOS : ANA;
+    return accepted(
+      turnBegun(settings),
+      host,
+      { type: "begin-turn" },
+      at(BEA_BEGINS),
+    );
   }
+  /** When Bea's first Fallo is judged, and when the Handover after it ends. */
+  const BEA_MISSES = BEA_BEGINS + 1000;
+  const BEA_HANDED_OVER = BEA_MISSES + 5000;
 
-  it("plays on after a Fallo, with the Clock running", () => {
-    const state = judged(onlyBeaLeft(), ANA, "miss", BEA_BEGINS + 1000);
+  it("stops after a Fallo: the Clock stops, every Device sees the answer, and the Turn stays hers", () => {
+    const state = judged(onlyBeaLeft(), ANA, "miss", BEA_MISSES);
 
-    const view = playingView(state, BEA, BEA_BEGINS + 3000);
-    expect(view).toMatchObject({
-      stage: "running",
+    for (const device of [ANA, BEA, CARLOS]) {
+      const view = playingView(state, device, BEA_MISSES + 3000);
+      expect(view).toMatchObject({
+        stage: "handover",
+        turn: "player2",
+        handoverFrom: "player2",
+        handoverMs: 2000,
+        revealed: { letter: "A", answer: "Aotrarespuesta" },
+      });
+      expect(resultsOf(view, "player2")).toBe("m........................");
+      expect(view.roscos.player2).toMatchObject({
+        current: "B",
+        clockMs: 179_000,
+        finished: false,
+      });
+    }
+  });
+
+  it("waits after that Handover for Empezar turno from the Player who finished", () => {
+    const state = judged(onlyBeaLeft(), ANA, "miss", BEA_MISSES);
+
+    const waiting = playingView(state, BEA, BEA_HANDED_OVER + 10_000);
+    expect(waiting).toMatchObject({
+      stage: "waiting",
       turn: "player2",
+      turnHost: idOf(state, ANA),
+      handoverFrom: null,
       handoverMs: null,
+      revealed: null,
     });
-    expect(resultsOf(view, "player2")).toBe("m........................");
-    expect(view.roscos.player2).toMatchObject({
+    expect(waiting.roscos.player2.clockMs).toBe(179_000);
+    expect(nextChange(tick(state, BEA_HANDED_OVER))).toBeNull();
+    expect(
+      rejection(state, BEA, { type: "begin-turn" }, at(BEA_HANDED_OVER)),
+    ).toBe("not-host");
+
+    const begun = accepted(
+      state,
+      ANA,
+      { type: "begin-turn" },
+      at(BEA_HANDED_OVER + 10_000),
+    );
+    const running = playingView(begun, BEA, BEA_HANDED_OVER + 12_000);
+    expect(running).toMatchObject({ stage: "running", turn: "player2" });
+    expect(running.roscos.player2).toMatchObject({
       current: "B",
       clockMs: 177_000,
     });
+  });
+
+  it("waits for the dedicated Host's Empezar turno in a Hosted Match", () => {
+    const state = judged(onlyBeaLeft(HOSTED), CARLOS, "miss", BEA_MISSES);
+
+    expect(playingView(state, BEA, BEA_HANDED_OVER)).toMatchObject({
+      stage: "waiting",
+      turn: "player2",
+      turnHost: idOf(state, CARLOS),
+    });
+    expect(
+      rejection(state, ANA, { type: "begin-turn" }, at(BEA_HANDED_OVER)),
+    ).toBe("not-host");
+
+    const begun = accepted(
+      state,
+      CARLOS,
+      { type: "begin-turn" },
+      at(BEA_HANDED_OVER),
+    );
+    expect(playingView(begun, BEA, BEA_HANDED_OVER).stage).toBe("running");
+  });
+
+  it("pauses during that Handover and that waiting Turn as in any other", () => {
+    const missed = judged(onlyBeaLeft(), ANA, "miss", BEA_MISSES);
+
+    // Bea drops 1 s into the Handover, and is back 20 s later.
+    const paused = away(missed, BEA_MISSES + 1000, BEA);
+    expect(playingView(paused, ANA, BEA_MISSES + 21_000)).toMatchObject({
+      stage: "handover",
+      handoverMs: 4000,
+      pause: { missing: [idOf(missed, BEA)] },
+    });
+    const back = away(paused, BEA_MISSES + 21_000);
+    expect(nextChange(back)).toBe(BEA_HANDED_OVER + 20_000);
+
+    // Then Ana, the Host of the waiting Turn, drops.
+    const waiting = away(back, BEA_HANDED_OVER + 25_000, ANA);
+    expect(playingView(waiting, BEA, BEA_HANDED_OVER + 25_000)).toMatchObject({
+      stage: "waiting",
+      pause: { missing: [idOf(missed, ANA)] },
+    });
+    expect(
+      rejection(
+        waiting,
+        ANA,
+        { type: "begin-turn" },
+        at(BEA_HANDED_OVER + 26_000),
+      ),
+    ).toBe("match-paused");
+  });
+
+  it("plays on after an Acierto, with the Clock running", () => {
+    const state = judged(onlyBeaLeft(), ANA, "hit", BEA_BEGINS + 1000);
+
+    const view = playingView(state, BEA, BEA_BEGINS + 3000);
+    expect(view).toMatchObject({ stage: "running", turn: "player2" });
+    expect(resultsOf(view, "player2")).toBe("h........................");
+    expect(view.roscos.player2.clockMs).toBe(177_000);
   });
 
   it("plays on after a Pasapalabra, with the Clock running", () => {

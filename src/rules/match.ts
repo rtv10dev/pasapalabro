@@ -72,6 +72,8 @@ interface Play {
   handover: {
     /** In epoch milliseconds. */
     endsAt: number;
+    /** The Player whose Turn just ended. */
+    from: PlayerRole;
     /** The answer to the Clue just missed, if the Turn ended on a Miss. */
     revealed: Revealed | null;
   } | null;
@@ -511,6 +513,7 @@ function playView(
     handoverMs: play.handover
       ? Math.max(0, play.handover.endsAt - handoverAt)
       : null,
+    handoverFrom: play.handover?.from ?? null,
     roscos: { player1: rosco("player1"), player2: rosco("player2") },
     clue: clue
       ? {
@@ -645,9 +648,12 @@ function judge(
     ...play,
     progress: { ...play.progress, [play.turn]: answered },
   };
-  // Once the other Player has finished, nothing but finishing stops this one.
+  // Once the other Player has finished, a Pasapalabra has nobody to hand
+  // the Turn to; a Miss still stops this one.
   const playsOn =
-    verdict === "hit" || isFinished(play.progress[otherPlayer(play.turn)]);
+    verdict === "hit" ||
+    (verdict === "pasapalabra" &&
+      isFinished(play.progress[otherPlayer(play.turn)]));
   if (playsOn && !isFinished(answered)) return withPlay(state, next);
   const clue = state.roscos[roscoIndex(play.turn)]?.[progress.current];
   const revealed =
@@ -668,8 +674,9 @@ function heldBack(play: Play): Rejection | null {
 
 /**
  * Stops the playing Player's Clock at `now` and hands the Turn over to the
- * other Player, unless both have finished: then the Match is over, after a
- * Handover only if there is a Miss's answer to show.
+ * other Player, unless they have finished: then it stays with this one. If
+ * both have finished, the Match is over, after a Handover only if there is
+ * a Miss's answer to show.
  */
 function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
   const stopped = {
@@ -678,13 +685,16 @@ function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
   };
   const progress = { ...play.progress, [play.turn]: stopped };
   const over = isOver(progress);
+  const other = otherPlayer(play.turn);
   return {
     ...play,
-    turn: over ? play.turn : otherPlayer(play.turn),
+    turn: isFinished(progress[other]) ? play.turn : other,
     progress,
     runningSince: null,
     handover:
-      over && !revealed ? null : { endsAt: now + HANDOVER_MS, revealed },
+      over && !revealed
+        ? null
+        : { endsAt: now + HANDOVER_MS, from: play.turn, revealed },
   };
 }
 

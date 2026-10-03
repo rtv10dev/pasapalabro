@@ -585,11 +585,13 @@ function playerScreen(view: PlayingView): Node[] {
 }
 
 /**
- * Between Turns: the answer to the Clue just missed, and who plays next;
- * or, after a Fallo that finished the Match, that answer before the end.
+ * Between Turns: the answer to the Clue just missed, and who plays next,
+ * unless it's the same Player because the other has finished; or, after a
+ * Fallo that finished the Match, that answer before the end.
  */
 function handover(view: PlayingView, nextName: string): Node[] {
   const ending = PLAYER_ROLES.every((role) => view.roscos[role].finished);
+  const samePlayer = view.handoverFrom === view.turn;
   const display = h("p", { className: "countdown" });
   ticking(display, view.handoverMs ?? 0, (left) =>
     String(Math.ceil(left / 1000)),
@@ -603,7 +605,7 @@ function handover(view: PlayingView, nextName: string): Node[] {
         `La respuesta de la ${view.revealed.letter} era `,
         h("strong", {}, view.revealed.answer),
       ),
-    !ending &&
+    !samePlayer &&
       h("p", { className: "first" }, "Ahora juega ", h("strong", {}, nextName)),
     display,
   ].filter((node) => node !== null && node !== false);
