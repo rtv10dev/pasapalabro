@@ -50,6 +50,14 @@ const ROSCO: Rosco = LETTERS.map((letter) => ({
   veryHard: false,
 }));
 
+/** Both Roscos with two other answers for every Clue. */
+const WITH_OTHERS: Rosco[] = Array.from({ length: 2 }, () =>
+  ROSCO.map((clue) => ({
+    ...clue,
+    otherAnswers: [`${clue.letter}alternativa`, `${clue.letter}sinónimo`],
+  })),
+);
+
 /** A Match created with the given Roscos: both, unless a test says otherwise. */
 function created(
   settings: Settings = UNHOSTED,
@@ -99,8 +107,11 @@ function idOf(state: MatchState, device: DeviceKey): number {
 }
 
 /** A Match whose Lobby Ana (the Creator), Bea and Carlos have joined. */
-function lobbyOfThree(settings: Settings = UNHOSTED): MatchState {
-  const withBea = accepted(created(settings), BEA, {
+function lobbyOfThree(
+  settings: Settings = UNHOSTED,
+  roscos?: Rosco[],
+): MatchState {
+  const withBea = accepted(created(settings, roscos), BEA, {
     type: "join",
     name: "Bea",
   });
@@ -668,11 +679,11 @@ function at(now: number): Context {
  * A Match past its countdown, with Ana as Player 1 (playing first), Bea as
  * Player 2 and, if Hosted, Carlos as Host.
  */
-function playing(settings: Settings = UNHOSTED): MatchState {
+function playing(settings: Settings = UNHOSTED, roscos?: Rosco[]): MatchState {
   const roles = settings.hosted
     ? { host: CARLOS, player1: ANA, player2: BEA }
     : { player1: ANA, player2: BEA };
-  const lobby = withRoles(lobbyOfThree(settings), roles);
+  const lobby = withRoles(lobbyOfThree(settings, roscos), roles);
   const started = accepted(lobby, ANA, { type: "start" });
   return accepted(accepted(started, ANA, { type: "ready" }), BEA, {
     type: "ready",
@@ -718,10 +729,13 @@ describe("the first Turn", () => {
 });
 
 /** The first Turn of `playing()`, begun by its Host (Bea) at PLAY_STARTS. */
-function turnBegun(settings: Settings = UNHOSTED): MatchState {
+function turnBegun(
+  settings: Settings = UNHOSTED,
+  roscos?: Rosco[],
+): MatchState {
   const host = settings.hosted ? CARLOS : BEA;
   return accepted(
-    playing(settings),
+    playing(settings, roscos),
     host,
     { type: "begin-turn" },
     at(PLAY_STARTS),
@@ -1100,10 +1114,61 @@ describe("the current Clue", () => {
       contains: false,
       text: "Definición de la A",
       answer: "Arespuesta",
+      otherAnswers: [],
     };
 
     expect(playingView(playing(), BEA, PLAY_STARTS).clue).toEqual(clueA);
     expect(playingView(turnBegun(), BEA, JUDGED).clue).toEqual(clueA);
+  });
+
+  it("lists the other answers the Host can also accept", () => {
+    expect(
+      playingView(turnBegun(UNHOSTED, WITH_OTHERS), BEA, JUDGED).clue,
+    ).toMatchObject({
+      answer: "Arespuesta",
+      otherAnswers: ["Aalternativa", "Asinónimo"],
+    });
+    expect(
+      playingView(turnBegun(HOSTED, WITH_OTHERS), CARLOS, JUDGED).clue
+        ?.otherAnswers,
+    ).toEqual(["Aalternativa", "Asinónimo"]);
+  });
+
+  it("keeps its other answers out of the revealed answer and the Results", () => {
+    const missed = judged(
+      turnBegun(UNHOSTED, WITH_OTHERS),
+      BEA,
+      "miss",
+      JUDGED,
+    );
+    const { state, now } = playedOut(
+      [["miss"], ["hit", "miss"], [], []],
+      UNHOSTED,
+      WITH_OTHERS,
+    );
+
+    for (const device of [ANA, BEA, CARLOS]) {
+      expect(playingView(missed, device, JUDGED).revealed).toEqual({
+        letter: "A",
+        answer: "Arespuesta",
+      });
+      const { results } = playingView(state, device, now);
+      expect(results?.clues.player2[1]).toEqual({
+        letter: "B",
+        contains: false,
+        text: "Definición de la B",
+        answer: "Brespuesta",
+        result: "miss",
+      });
+      expect(JSON.stringify(results)).not.toContain("alternativa");
+    }
+  });
+
+  it("has no other answers when stored before Clues had them", () => {
+    // ROSCO's Clues have no otherAnswers field, as in an older Stock or Match.
+    expect(playingView(turnBegun(), BEA, JUDGED).clue?.otherAnswers).toEqual(
+      [],
+    );
   });
 
   it("follows the letters as they are answered", () => {
@@ -1185,8 +1250,9 @@ describe("the next change time alone makes", () => {
 function playedOut(
   turns: Verdict[][],
   settings: Settings = UNHOSTED,
+  roscos?: Rosco[],
 ): { state: MatchState; now: number } {
-  let state = tick(playing(settings), PLAY_STARTS);
+  let state = tick(playing(settings, roscos), PLAY_STARTS);
   let now = PLAY_STARTS;
   for (const turn of turns) {
     const host = deviceOf(state, playingView(state, ANA, now).turnHost);

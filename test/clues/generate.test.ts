@@ -5,7 +5,7 @@ import {
   type ClueRequest,
   type Provider,
 } from "../../src/clues/generate";
-import { LETTERS, type Letter } from "../../src/shared/rosco";
+import { LETTERS, type Letter, type Rosco } from "../../src/shared/rosco";
 import { modelClue, modelReply } from "../fixtures/clues";
 
 /** A model that writes a valid Clue for every letter it is asked for. */
@@ -40,6 +40,23 @@ function missing(...wrong: Letter[]) {
         wrong.includes(letter) ? modelClue(letter, "zzz") : modelClue(letter),
       ),
     );
+}
+
+/** A model that writes these other answers for the letter's Clue, and none for the rest. */
+function replyWithOtherAnswers(letter: Letter, otherAnswers: unknown) {
+  return (request: ClueRequest): string =>
+    modelReply(
+      request.letters.map((each) =>
+        each === letter
+          ? { ...modelClue(each), otherAnswers }
+          : modelClue(each),
+      ),
+    );
+}
+
+/** The other answers of the Rosco's Clue for the letter. */
+function otherAnswersOf(rosco: Rosco, letter: Letter): string[] | undefined {
+  return rosco.find((clue) => clue.letter === letter)?.otherAnswers;
 }
 
 /** A provider overloaded or too slow to answer, like Gemini's 503 "high demand". */
@@ -77,6 +94,8 @@ describe("generateRosco", () => {
       contains: false,
       text: "Definición número 1",
       answer: "ballena",
+      // The model wrote no other answers: the field is optional.
+      otherAnswers: [],
       veryHard: false,
     });
     expect(rosco.find((clue) => clue.letter === "X")?.contains).toBe(true);
@@ -88,6 +107,52 @@ describe("generateRosco", () => {
       veryHard: veryHard.map((clue) => clue.letter),
       avoid: [],
     });
+  });
+
+  it("keeps the other answers a model writes for a Clue", async () => {
+    const gemini = scripted("gemini", [
+      replyWithOtherAnswers("B", ["bisonte", "búfalo"]),
+    ]);
+
+    const rosco = await generate([gemini]);
+
+    expect(otherAnswersOf(rosco, "B")).toEqual(["bisonte", "búfalo"]);
+  });
+
+  it("drops quietly the other answers that fail a check, in the same round", async () => {
+    const gemini = scripted("gemini", [
+      replyWithOtherAnswers("N", [
+        "zanahoria", // Breaks the letter rule.
+        "número", // In the Clue: "Definición número 12".
+        "nave espacial", // Not one word.
+        " Nutria ", // The main answer again.
+        "nube",
+      ]),
+    ]);
+
+    const rosco = await generate([gemini]);
+
+    expect(otherAnswersOf(rosco, "N")).toEqual(["nube"]);
+    expect(gemini.requests).toHaveLength(1);
+  });
+
+  it("keeps no more than two other answers, the first valid ones", async () => {
+    const gemini = scripted("gemini", [
+      replyWithOtherAnswers("B", ["zzz", "bisonte", "búfalo", "burro"]),
+    ]);
+
+    const rosco = await generate([gemini]);
+
+    expect(otherAnswersOf(rosco, "B")).toEqual(["bisonte", "búfalo"]);
+  });
+
+  it("ignores other answers that aren't a list of words, in the same round", async () => {
+    const gemini = scripted("gemini", [replyWithOtherAnswers("B", "bisonte")]);
+
+    const rosco = await generate([gemini]);
+
+    expect(otherAnswersOf(rosco, "B")).toEqual([]);
+    expect(gemini.requests).toHaveLength(1);
   });
 
   it("asks again only for the letters whose Clue failed a check", async () => {

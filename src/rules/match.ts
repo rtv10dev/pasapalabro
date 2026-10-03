@@ -510,6 +510,7 @@ function playView(
           contains: clue.contains,
           text: clue.text,
           answer: clue.answer,
+          otherAnswers: clue.otherAnswers ?? [],
         }
       : null,
     pause:

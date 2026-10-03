@@ -494,8 +494,9 @@ function playing(view: PlayingView, send: Send): Node[] {
 }
 
 /**
- * The Host's screen: the Clue and its answer, the playing Player's Rosco and
- * Clock, and the buttons that run the Turn.
+ * The Host's screen: the Clue with its answer and the other answers they can
+ * accept, the playing Player's Rosco and Clock, and the buttons that run the
+ * Turn.
  */
 function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
   const { clue } = view;
@@ -531,6 +532,15 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
           "Respuesta: ",
           h("strong", {}, clue.answer),
         ),
+        clue.otherAnswers.length > 0 &&
+          h(
+            "p",
+            { className: "muted" },
+            clue.otherAnswers.length === 1
+              ? "También vale: "
+              : "También valen: ",
+            clue.otherAnswers.join(", "),
+          ),
       ),
     view.stage === "waiting"
       ? button("Empezar turno", "", { type: "begin-turn" })

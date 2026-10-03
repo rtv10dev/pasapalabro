@@ -1,5 +1,5 @@
 import type { Difficulty } from "../shared/protocol";
-import type { ClueRequest } from "./generate";
+import { MAX_OTHER_ANSWERS, type ClueRequest } from "./generate";
 
 /** What a model reads: its standing instructions and this request. */
 export interface Prompt {
@@ -22,7 +22,8 @@ Escribes definiciones en español de España. Reglas:
 - La definición no puede contener la respuesta ni una palabra de su familia.
 - Estilo del programa: una frase breve y precisa, sin pistas como "empieza por".
 - No repitas respuestas.
-Responde SOLO con JSON con esta forma: {"clues":[{"letter":"A","type":"empieza","clue":"...","answer":"..."}]}`;
+- Si otras palabras también responden bien a la definición, con la misma letra y las mismas reglas, ponlas en "otherAnswers" (hasta ${MAX_OTHER_ANSWERS}). Si no hay, omite el campo.
+Responde SOLO con JSON con esta forma: {"clues":[{"letter":"A","type":"empieza","clue":"...","answer":"...","otherAnswers":["..."]}]}`;
 
 /** The JSON Schema of the reply, for providers that can enforce one. */
 export const REPLY_SCHEMA = {
@@ -37,6 +38,7 @@ export const REPLY_SCHEMA = {
           type: { type: "string", enum: ["empieza", "contiene"] },
           clue: { type: "string" },
           answer: { type: "string" },
+          otherAnswers: { type: "array", items: { type: "string" } },
         },
         required: ["letter", "type", "clue", "answer"],
       },

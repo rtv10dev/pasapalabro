@@ -39,6 +39,9 @@ export interface Generation {
 /** How many very hard Clues every Rosco has, whatever its Difficulty. */
 const VERY_HARD_CLUES = 2;
 
+/** How many other answers a Clue keeps, at most. */
+export const MAX_OTHER_ANSWERS = 2;
+
 /** How many times the model is asked for the Clues that keep failing a check. */
 const ROUNDS = 3;
 
@@ -55,6 +58,8 @@ const replySchema = z.object({
       type: z.enum(["empieza", "contiene"]),
       clue: z.string(),
       answer: z.string(),
+      // Missing or malformed, it's none: it never makes the Clue fail.
+      otherAnswers: z.catch(z.array(z.string()), []),
     }),
   ),
 });
@@ -81,7 +86,10 @@ export async function generateRosco(
       const candidate = written.get(letter);
       const answers = [...accepted.values()].map(({ answer }) => answer);
       if (candidate && !checkClue(candidate, answers)) {
-        accepted.set(letter, candidate);
+        accepted.set(letter, {
+          ...candidate,
+          otherAnswers: checkedOtherAnswers(candidate),
+        });
       }
     }
   }
@@ -118,6 +126,24 @@ async function ask(
   throw new AggregateError(errors, "Every provider failed to write Clues");
 }
 
+/**
+ * The Clue's first MAX_OTHER_ANSWERS other answers that pass the same checks as its answer and
+ * repeat neither it nor each other. The rest are dropped: they never make
+ * the Clue fail.
+ */
+function checkedOtherAnswers({
+  otherAnswers = [],
+  ...candidate
+}: Candidate): string[] {
+  const kept: string[] = [];
+  for (const other of otherAnswers) {
+    if (kept.length === MAX_OTHER_ANSWERS) break;
+    const earlier = [candidate.answer, ...kept];
+    if (!checkClue({ ...candidate, answer: other }, earlier)) kept.push(other);
+  }
+  return kept;
+}
+
 function drawVeryHard(random: () => number): Letter[] {
   const remaining = [...LETTERS];
   const drawn: Letter[] = [];
@@ -142,7 +168,8 @@ function candidatesIn(reply: string): Map<Letter, Candidate> {
   }
   const parsed = replySchema.safeParse(json);
   if (!parsed.success) return candidates;
-  for (const { letter: written, type, clue, answer } of parsed.data.clues) {
+  for (const { letter: written, type, clue, answer, otherAnswers } of parsed
+    .data.clues) {
     const letter = LETTERS.find(
       (each) => each === written.trim().toUpperCase(),
     );
@@ -152,6 +179,7 @@ function candidatesIn(reply: string): Map<Letter, Candidate> {
         contains: type === "contiene",
         text: clue.trim(),
         answer: answer.trim(),
+        otherAnswers: otherAnswers.map((other) => other.trim()),
       });
     }
   }

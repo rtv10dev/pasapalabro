@@ -15,6 +15,7 @@ export interface ModelClue {
   type: "empieza" | "contiene";
   clue: string;
   answer: string;
+  otherAnswers?: unknown;
 }
 
 /** A Clue for the letter that passes every check, unless given a wrong answer. */

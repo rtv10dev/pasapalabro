@@ -16,6 +16,11 @@ export interface Clue {
   /** The statement the Host reads aloud. */
   text: string;
   answer: string;
+  /**
+   * Up to two other answers with the same letter that the Host can also
+   * accept. Missing in a Clue stored before they existed: read it as none.
+   */
+  otherAnswers?: string[];
   /** One of the Rosco's very hard Clues, whatever its Difficulty. */
   veryHard: boolean;
 }
