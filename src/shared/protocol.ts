@@ -256,8 +256,9 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     roscos: z.object({ player1: roscoViewSchema, player2: roscoViewSchema }),
     /**
      * The current Clue, its answer and the other answers the Host can accept:
-     * only for the Host of the Turn, and only while the Turn is waiting or
-     * running. Null for everyone else.
+     * only for the Host of the Turn and, in a Hosted Match, the waiting
+     * Player, and only while the Turn is waiting or running. Null for
+     * everyone else.
      */
     clue: z.nullable(
       z.object({

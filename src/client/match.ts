@@ -25,6 +25,7 @@ import { LETTERS } from "../shared/rosco";
 import { deviceKeyFor, rememberDeviceKey } from "./device-key";
 import { h, showStatus } from "./dom";
 import { mirror, startCamera, stopCamera } from "./mirror";
+import { rememberShowAnswers, showsAnswers } from "./show-answers";
 
 type Send = (action: Action) => void;
 
@@ -79,6 +80,12 @@ const STALE_MS = 5000;
 const root = document.querySelector<HTMLElement>("#match");
 /** The intervals counting down on screen; cleared on every new view. */
 let intervals: number[] = [];
+/**
+ * Whether the waiting Player of a Hosted Match is following the other
+ * Rosco instead of Espera tu turno; kept across views until Volver or until
+ * their own Turn comes.
+ */
+let following = false;
 
 export function followMatch(matchId: string): void {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -98,7 +105,7 @@ export function followMatch(matchId: string): void {
     const opened = new WebSocket(url);
     socket = opened;
     opened.addEventListener("message", (event) => {
-      receive(event, send, device);
+      receive(event, send, device, matchId);
     });
     opened.addEventListener("close", () => {
       if (socket !== opened) return;
@@ -144,7 +151,12 @@ export function followMatch(matchId: string): void {
   connect();
 }
 
-function receive(event: MessageEvent, send: Send, device: DeviceKey): void {
+function receive(
+  event: MessageEvent,
+  send: Send,
+  device: DeviceKey,
+  matchId: MatchId,
+): void {
   if (typeof event.data !== "string") return;
   const message = parseServerMessage(event.data);
   if (!message) return;
@@ -158,7 +170,7 @@ function receive(event: MessageEvent, send: Send, device: DeviceKey): void {
     return;
   }
   showStatus("");
-  render(view, send);
+  render(view, send, matchId);
 }
 
 /**
@@ -170,20 +182,20 @@ function moveTo(rematch: MatchId, device: DeviceKey): void {
   location.replace(`/m/${rematch}`);
 }
 
-function render(view: MatchView, send: Send): void {
+function render(view: MatchView, send: Send, matchId: MatchId): void {
   for (const interval of intervals) window.clearInterval(interval);
   intervals = [];
-  root?.replaceChildren(...screen(view, send));
+  root?.replaceChildren(...screen(view, send, matchId));
 }
 
-function screen(view: MatchView, send: Send): Node[] {
+function screen(view: MatchView, send: Send, matchId: MatchId): Node[] {
   switch (view.phase) {
     case "lobby":
       return lobby(view, send);
     case "started":
       return started(view, send);
     case "playing":
-      return playing(view, send);
+      return playing(view, send, matchId);
   }
 }
 
@@ -466,18 +478,23 @@ function ticking(
 }
 
 /** A Turn being played, as this Device's role in it sees it. */
-function playing(view: PlayingView, send: Send): Node[] {
+function playing(view: PlayingView, send: Send, matchId: MatchId): Node[] {
   const playerName = playerNameOf(view, view.turn);
   // The Pause screen hides a Tally, which stands still until it ends.
   if (view.pause) return paused(view, view.pause);
-  const nodes = turnScreen(view, playerName, send);
+  const nodes = turnScreen(view, playerName, send, matchId);
   return view.tallyMs === null
     ? nodes
     : [...nodes, tallyOverlay(view, view.tallyMs)];
 }
 
 /** What this Device shows of the Turn, by its stage and this Device's role. */
-function turnScreen(view: PlayingView, playerName: string, send: Send): Node[] {
+function turnScreen(
+  view: PlayingView,
+  playerName: string,
+  send: Send,
+  matchId: MatchId,
+): Node[] {
   const player = view.roles[view.turn];
   switch (view.stage) {
     case "abandoned":
@@ -489,12 +506,12 @@ function turnScreen(view: PlayingView, playerName: string, send: Send): Node[] {
     case "waiting":
     case "running":
       if (view.you === view.turnHost) return hostScreen(view, playerName, send);
-      if (view.you === player) return playerScreen(view);
+      if (view.you === player) {
+        following = false;
+        return playerScreen(view);
+      }
       if (PLAYER_ROLES.some((role) => view.roles[role] === view.you)) {
-        return [
-          h("h1", {}, "Espera tu turno"),
-          h("p", { className: "muted" }, `Ahora juega ${playerName}.`),
-        ];
+        return waitingScreen(view, playerName, matchId);
       }
       return [
         h("h1", {}, `Juega ${playerName}`),
@@ -531,33 +548,7 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
   return [
     h("p", { className: "muted" }, `Presentas el turno de ${playerName}`),
     clock(view, view.turn),
-    clue &&
-      h(
-        "section",
-        { className: "clue stack" },
-        h(
-          "p",
-          { className: "rule" },
-          clue.contains ? "Contiene la " : "Empieza por ",
-          h("strong", { className: "letter" }, clue.letter),
-        ),
-        h("p", { className: "text" }, clue.text),
-        h(
-          "p",
-          { className: "answer" },
-          "Respuesta: ",
-          h("strong", {}, clue.answer),
-        ),
-        clue.otherAnswers.length > 0 &&
-          h(
-            "p",
-            { className: "muted" },
-            clue.otherAnswers.length === 1
-              ? "También vale: "
-              : "También valen: ",
-            clue.otherAnswers.join(", "),
-          ),
-      ),
+    clue && clueCard(clue).card,
     view.stage === "waiting"
       ? h(
           "div",
@@ -583,6 +574,122 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
         ),
     rosco(view.roscos[view.turn]),
   ].filter((node) => node !== null);
+}
+
+/**
+ * The Clue with its letter, its answer and the other answers; `answers` are
+ * the elements holding them, for a screen that can hide them.
+ */
+function clueCard(clue: NonNullable<PlayingView["clue"]>): {
+  card: Node;
+  answers: HTMLElement[];
+} {
+  const answers = [
+    h(
+      "p",
+      { className: "answer" },
+      "Respuesta: ",
+      h("strong", {}, clue.answer),
+    ),
+  ];
+  if (clue.otherAnswers.length > 0) {
+    answers.push(
+      h(
+        "p",
+        { className: "muted" },
+        clue.otherAnswers.length === 1 ? "También vale: " : "También valen: ",
+        clue.otherAnswers.join(", "),
+      ),
+    );
+  }
+  const card = h(
+    "section",
+    { className: "clue stack" },
+    h(
+      "p",
+      { className: "rule" },
+      clue.contains ? "Contiene la " : "Empieza por ",
+      h("strong", { className: "letter" }, clue.letter),
+    ),
+    h("p", { className: "text" }, clue.text),
+    ...answers,
+  );
+  return { card, answers };
+}
+
+/**
+ * The waiting Player's screen: Espera tu turno and, in a Hosted Match, the
+ * button to follow the other Player's Rosco, with their Clock and the Clue,
+ * its answers shown only with Mostrar respuestas. Both screens are built
+ * and switched in place, so the Clock keeps counting from this view.
+ */
+function waitingScreen(
+  view: PlayingView,
+  playerName: string,
+  matchId: MatchId,
+): Node[] {
+  const waiting = h(
+    "section",
+    { className: "stack" },
+    h("h1", {}, "Espera tu turno"),
+    h("p", { className: "muted" }, `Ahora juega ${playerName}.`),
+  );
+  if (!view.settings.hosted) return [waiting];
+  const clue = view.clue && clueCard(view.clue);
+  const answers = clue?.answers ?? [];
+  const showAnswers = (on: boolean): void => {
+    for (const answer of answers) answer.hidden = !on;
+  };
+  const toggle = h("input", {
+    type: "checkbox",
+    checked: showsAnswers(matchId),
+    onchange: () => {
+      rememberShowAnswers(matchId, toggle.checked);
+      showAnswers(toggle.checked);
+    },
+  });
+  showAnswers(toggle.checked);
+  const follow = h(
+    "section",
+    { className: "stack" },
+    h("p", { className: "muted" }, `Rosco de ${playerName}`),
+    clock(view, view.turn),
+    clue?.card ?? null,
+    h("label", { className: "toggle" }, toggle, "Mostrar respuestas"),
+    rosco(view.roscos[view.turn]),
+  );
+  const show = (on: boolean): void => {
+    following = on;
+    waiting.hidden = on;
+    follow.hidden = !on;
+  };
+  waiting.append(
+    h(
+      "button",
+      {
+        type: "button",
+        onclick: () => {
+          show(true);
+        },
+      },
+      `Ver el rosco de ${playerName}`,
+    ),
+  );
+  follow.append(
+    h(
+      "button",
+      {
+        type: "button",
+        className: "secondary",
+        onclick: () => {
+          show(false);
+        },
+      },
+      "Volver",
+    ),
+  );
+  show(following);
+  return [waiting, follow];
 }
 
 /**

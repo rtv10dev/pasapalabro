@@ -1332,6 +1332,62 @@ describe("the current Clue", () => {
     });
   });
 
+  it("also reaches the waiting Player of a Hosted Match, with its answers", () => {
+    const clueA = {
+      letter: "A",
+      contains: false,
+      text: "Definición de la A",
+      answer: "Arespuesta",
+      otherAnswers: ["Aalternativa", "Asinónimo"],
+    };
+
+    expect(
+      playingView(playing(HOSTED, WITH_OTHERS), BEA, PLAY_STARTS).clue,
+    ).toEqual(clueA);
+    expect(
+      playingView(turnBegun(HOSTED, WITH_OTHERS), BEA, JUDGED).clue,
+    ).toEqual(clueA);
+  });
+
+  it("follows the Turn to the other waiting Player after a Handover", () => {
+    const missed = judged(turnBegun(HOSTED), CARLOS, "miss", JUDGED);
+
+    expect(playingView(missed, ANA, HANDED_OVER).clue).toMatchObject({
+      letter: "A",
+      answer: "Aotrarespuesta",
+    });
+    expect(playingView(missed, BEA, HANDED_OVER).clue).toBeNull();
+  });
+
+  it("reaches no Member without a role in a Hosted Match", () => {
+    const dani = "00000000-0000-4000-8000-00000000000d";
+    const lobby = accepted(lobbyOfThree(HOSTED), dani, {
+      type: "join",
+      name: "Dani",
+    });
+    const roles = withRoles(lobby, {
+      host: CARLOS,
+      player1: ANA,
+      player2: BEA,
+    });
+    const started = accepted(roles, ANA, { type: "start" });
+    const ready = accepted(accepted(started, ANA, { type: "ready" }), BEA, {
+      type: "ready",
+    });
+    const begun = accepted(
+      ready,
+      CARLOS,
+      { type: "begin-turn" },
+      { ...at(PLAY_STARTS), connected: new Set([ANA, BEA, CARLOS, dani]) },
+    );
+
+    for (const state of [ready, begun]) {
+      const view = viewFor(state, dani, at(JUDGED));
+      expect(JSON.stringify(view)).not.toContain("Definición");
+      expect(JSON.stringify(view)).not.toContain("respuesta");
+    }
+  });
+
   it("never reaches the playing Player or anyone else before it is revealed", () => {
     const hosted = turnBegun(HOSTED);
     const unhosted = turnBegun();
@@ -1340,7 +1396,6 @@ describe("the current Clue", () => {
       viewFor(unhosted, ANA, at(JUDGED)),
       viewFor(unhosted, CARLOS, at(JUDGED)),
       viewFor(hosted, ANA, at(JUDGED)),
-      viewFor(hosted, BEA, at(JUDGED)),
       viewFor(judged(unhosted, BEA, "pasapalabra", JUDGED), BEA, at(JUDGED)),
     ];
 

@@ -517,9 +517,11 @@ function playView(
   // While paused, the Handover and the Tally stand where they stopped.
   const stoppedAt = play.pausedAt ?? now;
   // The Clue and its answer reach no Device but the Host's, and only while
-  // they read it out (ADR 0003): never the playing Player's.
+  // they read it out (ADR 0003): never the playing Player's. In a Hosted
+  // Match the waiting Player gets them too, to follow the other Rosco.
   const clue =
-    common.you === turnHost && (stage === "waiting" || stage === "running")
+    getsClue(state, play, common.you) &&
+    (stage === "waiting" || stage === "running")
       ? state.roscos[roscoIndex(play.turn)]?.[play.progress[play.turn].current]
       : undefined;
   return {
@@ -783,6 +785,22 @@ function isHostOfTurn(
   device: DeviceKey,
 ): boolean {
   return memberOf(state, device)?.id === hostOf(state, play.turn);
+}
+
+/**
+ * Whether the given Member gets the current Clue: the Host of the Turn and,
+ * in a Hosted Match, the Player who is waiting.
+ */
+function getsClue(
+  state: MatchState,
+  play: Play,
+  member: MemberId | null,
+): boolean {
+  if (member === null) return false;
+  if (member === hostOf(state, play.turn)) return true;
+  return (
+    state.settings.hosted && member === state.roles[otherPlayer(play.turn)]
+  );
 }
 
 /** Who judges the given Player's Turn: the Host, or else the other Player. */
