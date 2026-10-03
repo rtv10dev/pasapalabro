@@ -92,6 +92,8 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("begin-turn") }),
   /** The Host judging the answer to the current Clue. */
   z.object({ type: z.literal("judge"), verdict: z.enum(VERDICTS) }),
+  /** The Host of a Hosted Match pressing Marcador while a Turn waits. */
+  z.object({ type: z.literal("show-tally") }),
   /** The Creator pressing Revancha once the Match is over. */
   z.object({ type: z.literal("rematch") }),
 ]);
@@ -123,6 +125,7 @@ export const REJECTIONS = [
   "already-rematched",
   "match-paused",
   "match-abandoned",
+  "tally-showing",
 ] as const;
 /** Why the Match refused an Action. */
 export type Rejection = (typeof REJECTIONS)[number];
@@ -245,6 +248,11 @@ const matchViewSchema = z.discriminatedUnion("phase", [
      * outside one.
      */
     handoverFrom: z.nullable(z.enum(PLAYER_ROLES)),
+    /**
+     * Milliseconds left of the Tally on every Device, as of sending; null
+     * while it isn't shown.
+     */
+    tallyMs: z.nullable(z.number()),
     roscos: z.object({ player1: roscoViewSchema, player2: roscoViewSchema }),
     /**
      * The current Clue, its answer and the other answers the Host can accept:

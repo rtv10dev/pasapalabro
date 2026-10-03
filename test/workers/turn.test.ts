@@ -6,6 +6,7 @@ import {
   isPlaying,
   nextPlaying,
   ROSCOS,
+  UNHOSTED,
   type Device,
 } from "./helpers";
 
@@ -129,6 +130,29 @@ describe("the Turns of a Match", () => {
     expect(sent).not.toContain("Definición");
     for (const answer of ["abeja", "ballena", "caracol"]) {
       expect(sent).not.toContain(answer);
+    }
+  });
+
+  it("show the Tally on every Device until its alarm runs, in a Hosted Match", async () => {
+    const { id, players, host } = await firstTurnOf({
+      ...UNHOSTED,
+      hosted: true,
+    });
+    if (!host) throw new Error("No Host");
+    const devices = [players.player1, players.player2, host];
+    for (const device of devices) await nextPlaying(device);
+
+    host.send({ type: "show-tally" });
+    for (const device of devices) {
+      const view = await nextPlaying(device);
+      expect(view.tallyMs).toBeGreaterThan(0);
+    }
+
+    expect(await fireAlarm(id)).toBe(true);
+
+    for (const device of devices) {
+      const view = await nextPlaying(device);
+      expect(view).toMatchObject({ stage: "waiting", tallyMs: null });
     }
   });
 });

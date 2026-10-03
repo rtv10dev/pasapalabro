@@ -61,6 +61,7 @@ const REJECTION_TEXTS: Record<Rejection, string> = {
   "already-rematched": "La revancha ya ha empezado.",
   "match-paused": "La partida está en pausa.",
   "match-abandoned": "La partida se ha abandonado.",
+  "tally-showing": "Espera a que termine el marcador.",
 };
 
 const RESULT_LABELS: Record<LetterResult, string> = {
@@ -466,9 +467,18 @@ function ticking(
 
 /** A Turn being played, as this Device's role in it sees it. */
 function playing(view: PlayingView, send: Send): Node[] {
-  const player = view.roles[view.turn];
   const playerName = playerNameOf(view, view.turn);
+  // The Pause screen hides a Tally, which stands still until it ends.
   if (view.pause) return paused(view, view.pause);
+  const nodes = turnScreen(view, playerName, send);
+  return view.tallyMs === null
+    ? nodes
+    : [...nodes, tallyOverlay(view, view.tallyMs)];
+}
+
+/** What this Device shows of the Turn, by its stage and this Device's role. */
+function turnScreen(view: PlayingView, playerName: string, send: Send): Node[] {
+  const player = view.roles[view.turn];
   switch (view.stage) {
     case "abandoned":
       return abandoned();
@@ -500,12 +510,18 @@ function playing(view: PlayingView, send: Send): Node[] {
  */
 function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
   const { clue } = view;
-  const button = (label: string, className: string, action: Action): Node =>
+  const button = (
+    label: string,
+    className: string,
+    action: Action,
+    disabled = false,
+  ): Node =>
     h(
       "button",
       {
         type: "button",
         className,
+        disabled,
         onclick: () => {
           send(action);
         },
@@ -543,7 +559,18 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
           ),
       ),
     view.stage === "waiting"
-      ? button("Empezar turno", "", { type: "begin-turn" })
+      ? h(
+          "div",
+          { className: "stack" },
+          button(
+            "Empezar turno",
+            "",
+            { type: "begin-turn" },
+            view.tallyMs !== null,
+          ),
+          view.settings.hosted &&
+            button("Marcador", "secondary", { type: "show-tally" }),
+        )
       : h(
           "div",
           { className: "verdicts" },
@@ -560,10 +587,12 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
 
 /**
  * The playing Player's screen, the Mirror: their Rosco around their head on
- * the front camera, with their Clock and count; never the Clue.
+ * the front camera, with their Clock and count, and the other Player's count
+ * small; never the Clue.
  */
 function playerScreen(view: PlayingView): Node[] {
   const yours = view.roscos[view.turn];
+  const other = otherPlayer(view.turn);
   return [
     mirror(
       rosco(yours),
@@ -571,7 +600,17 @@ function playerScreen(view: PlayingView): Node[] {
         "div",
         { className: "mirror-hud" },
         clock(view, view.turn),
-        tally(yours),
+        h(
+          "div",
+          { className: "counts" },
+          count(yours),
+          h(
+            "p",
+            { className: "other-count" },
+            `${playerNameOf(view, other)}: `,
+            count(view.roscos[other]),
+          ),
+        ),
       ),
       h(
         "p",
@@ -689,7 +728,7 @@ function over(view: PlayingView, send: Send): Node[] {
         "section",
         { className: "stack" },
         h("h2", {}, playerNameOf(view, role)),
-        tally(view.roscos[role]),
+        h("p", {}, count(view.roscos[role])),
         results && answers(results.clues[role]),
       ),
     ),
@@ -754,16 +793,44 @@ function rosco(view: RoscoView): HTMLElement {
 }
 
 /** The count of Hits and Misses. */
-function tally(view: RoscoView): Node {
-  const count = (result: LetterResult): number =>
+function count(view: RoscoView): Node {
+  const letters = (result: LetterResult): number =>
     view.letters.filter((each) => each.result === result).length;
   return h(
-    "p",
-    { className: "tally" },
-    h("span", { className: "hit" }, `${count("hit")} aciertos`),
+    "span",
+    { className: "count" },
+    h("span", { className: "hit" }, `${letters("hit")} aciertos`),
     " · ",
-    h("span", { className: "miss" }, `${count("miss")} fallos`),
+    h("span", { className: "miss" }, `${letters("miss")} fallos`),
   );
+}
+
+/**
+ * The Tally over whatever the Device shows, the Mirror included: each
+ * Player's Hits, Misses and Clock, counting down until it ends.
+ */
+function tallyOverlay(view: PlayingView, ms: number): Node {
+  const display = h("p", { className: "countdown" });
+  ticking(display, ms, (left) => String(Math.ceil(left / 1000)));
+  return h(
+    "section",
+    { className: "tally stack", role: "dialog", ariaLabel: "Marcador" },
+    h("h1", {}, "Marcador"),
+    ...PLAYER_ROLES.map((role) =>
+      h(
+        "div",
+        { className: "tally-player" },
+        h("h2", {}, playerNameOf(view, role)),
+        clock(view, role),
+        h("p", {}, count(view.roscos[role])),
+      ),
+    ),
+    display,
+  );
+}
+
+function otherPlayer(role: PlayerRole): PlayerRole {
+  return role === "player1" ? "player2" : "player1";
 }
 
 function rolesOf(settings: Settings): readonly Role[] {

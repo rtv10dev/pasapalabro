@@ -78,8 +78,13 @@ interface Play {
     revealed: Revealed | null;
   } | null;
   /**
+   * When the Tally the Host showed while the Turn waits ends, in epoch
+   * milliseconds; null while it isn't shown.
+   */
+  tallyEndsAt: number | null;
+  /**
    * When the Pause began, in epoch milliseconds; null outside one. While it
-   * lasts, neither the Clock nor the Handover moves.
+   * lasts, neither the Clock, the Handover nor the Tally moves.
    */
   pausedAt: number | null;
   /** Whether a Pause lasted ABANDON_MS: then nothing changes the Match again. */
@@ -127,6 +132,9 @@ const COUNTDOWN_MS = 5000;
 
 /** How long a Handover between Turns lasts. */
 const HANDOVER_MS = 5000;
+
+/** How long the Tally shows on every Device. */
+const TALLY_MS = 5000;
 
 /** How long a Pause lasts before the Match is abandoned. */
 const ABANDON_MS = 60_000;
@@ -202,6 +210,9 @@ export function act(
   }
   if (action.type === "judge") {
     return judge(tick(state, context.now), device, action.verdict, context.now);
+  }
+  if (action.type === "show-tally") {
+    return showTally(tick(state, context.now), device, context.now);
   }
   if (state.start) return { ok: false, reason: "already-started" };
   if (action.type === "join") return join(state, device, action.name);
@@ -301,14 +312,15 @@ export function devicesChanged(
 }
 
 /**
- * The latest of `time` and when the Clock or the Handover last started, so
- * a Pause that starts then gives back no time the Turn didn't run.
+ * The latest of `time` and when the Clock, the Handover or the Tally last
+ * started, so a Pause that starts then gives back no time they didn't run.
  */
 function lastMoved(play: Play, time: number): number {
   return Math.max(
     time,
     play.runningSince ?? time,
     play.handover ? play.handover.endsAt - HANDOVER_MS : time,
+    play.tallyEndsAt === null ? time : play.tallyEndsAt - TALLY_MS,
   );
 }
 
@@ -376,7 +388,7 @@ export function viewFor(
 
 /**
  * Applies what time alone changes, up to `now`: the countdown ending,
- * Clocks reaching zero, Handovers ending and Pauses running out.
+ * Clocks reaching zero, Handovers and Tallies ending and Pauses running out.
  */
 export function tick(state: MatchState, now: number): MatchState {
   const { start } = state;
@@ -413,13 +425,16 @@ function advance(state: MatchState, play: Play, now: number): Play {
   if (play.handover && now >= play.handover.endsAt) {
     return advance(state, { ...play, handover: null }, now);
   }
+  if (play.tallyEndsAt !== null && now >= play.tallyEndsAt) {
+    return { ...play, tallyEndsAt: null };
+  }
   return play;
 }
 
 /**
  * Pauses the Match at `now` if a Device its current Turn needs has dropped,
- * or ends the Pause once they are all back: the Clock and any Handover then
- * go on from where they stopped.
+ * or ends the Pause once they are all back: the Clock and any Handover or
+ * Tally then go on from where they stopped.
  */
 function pauseOrResume(state: MatchState, play: Play, now: number): Play {
   if (play.abandoned || isOver(play.progress)) return play;
@@ -437,6 +452,7 @@ function pauseOrResume(state: MatchState, play: Play, now: number): Play {
       ...play.handover,
       endsAt: play.handover.endsAt + pauseMs,
     },
+    tallyEndsAt: play.tallyEndsAt === null ? null : play.tallyEndsAt + pauseMs,
   };
 }
 
@@ -448,8 +464,8 @@ function missingFrom(state: MatchState, play: Play): MemberId[] {
 
 /**
  * When time alone next changes the Match, in epoch milliseconds: the end of
- * the countdown or of a Handover, or the running Clock reaching zero. Null
- * if nothing will change until someone acts.
+ * the countdown, of a Handover or of the Tally, or the running Clock
+ * reaching zero. Null if nothing will change until someone acts.
  */
 export function nextChange(state: MatchState): number | null {
   const start = state.start;
@@ -459,6 +475,7 @@ export function nextChange(state: MatchState): number | null {
   if (play.abandoned) return null;
   if (play.pausedAt !== null) return play.pausedAt + ABANDON_MS;
   if (play.handover) return play.handover.endsAt;
+  if (play.tallyEndsAt !== null) return play.tallyEndsAt;
   if (play.runningSince === null) return null;
   return play.runningSince + play.progress[play.turn].clockMs;
 }
@@ -477,6 +494,7 @@ function firstPlay(state: MatchState, firstPlayer: PlayerRole): Play {
     },
     runningSince: null,
     handover: null,
+    tallyEndsAt: null,
     pausedAt: null,
     abandoned: false,
   };
@@ -496,8 +514,8 @@ function playView(
     );
   const turnHost = hostOf(state, play.turn);
   const stage = stageOf(play);
-  // While paused, the Handover stands where it stopped.
-  const handoverAt = play.pausedAt ?? now;
+  // While paused, the Handover and the Tally stand where they stopped.
+  const stoppedAt = play.pausedAt ?? now;
   // The Clue and its answer reach no Device but the Host's, and only while
   // they read it out (ADR 0003): never the playing Player's.
   const clue =
@@ -511,9 +529,13 @@ function playView(
     turnHost,
     stage,
     handoverMs: play.handover
-      ? Math.max(0, play.handover.endsAt - handoverAt)
+      ? Math.max(0, play.handover.endsAt - stoppedAt)
       : null,
     handoverFrom: play.handover?.from ?? null,
+    tallyMs:
+      play.tallyEndsAt === null || play.abandoned
+        ? null
+        : Math.max(0, play.tallyEndsAt - stoppedAt),
     roscos: { player1: rosco("player1"), player2: rosco("player2") },
     clue: clue
       ? {
@@ -616,7 +638,28 @@ function beginTurn(state: MatchState, device: DeviceKey, now: number): Result {
   if (!isHostOfTurn(state, play, device)) {
     return { ok: false, reason: "not-host" };
   }
+  if (play.tallyEndsAt !== null) return { ok: false, reason: "tally-showing" };
   return withPlay(state, { ...play, runningSince: now });
+}
+
+/**
+ * The Host of a Hosted Match pressing Marcador at `now` while the Turn
+ * waits: the Tally shows on every Device for TALLY_MS, from the start again
+ * if it was already showing.
+ */
+function showTally(state: MatchState, device: DeviceKey, now: number): Result {
+  if (!state.settings.hosted) return { ok: false, reason: "not-hosted" };
+  if (!state.start) return { ok: false, reason: "not-started" };
+  const { play } = state.start;
+  const held = play && heldBack(play);
+  if (held) return { ok: false, reason: held };
+  if (!play || stageOf(play) !== "waiting") {
+    return { ok: false, reason: "turn-not-waiting" };
+  }
+  if (!isHostOfTurn(state, play, device)) {
+    return { ok: false, reason: "not-host" };
+  }
+  return withPlay(state, { ...play, tallyEndsAt: now + TALLY_MS });
 }
 
 /** The Host judging the answer to the current Clue at `now`. */
