@@ -597,7 +597,11 @@ function handover(view: PlayingView, nextName: string): Node[] {
     String(Math.ceil(left / 1000)),
   );
   return [
-    h("h1", {}, ending ? "Último fallo" : "Cambio de turno"),
+    h(
+      "h1",
+      {},
+      ending ? "Último fallo" : samePlayer ? "Fallo" : "Cambio de turno",
+    ),
     view.revealed &&
       h(
         "p",

@@ -91,7 +91,7 @@ _Avoid_: Round, go
 
 **Handover**:
 The short countdown between two Turns, during which a Miss's answer is shown on every Device and, unless the other Player has finished, the Turn passes to them; in a Match that isn't Hosted, the Players then also swap who plays and who is Host.
-_UI_: Cambio de turno
+_UI_: Cambio de turno (Fallo when the Turn stays with the same Player)
 _Avoid_: Transition, pause, break
 
 **Pause**:
