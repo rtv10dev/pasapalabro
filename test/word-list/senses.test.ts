@@ -50,6 +50,30 @@ describe("checkSense", () => {
     expect(checkSense("zoo", sense("Parque zoológico."))).toBe("family");
   });
 
+  it("refuses a family word whose stem changes, e to ie or o to ue", () => {
+    expect(checkSense("enmendador", sense("Que enmienda."))).toBe("family");
+    expect(checkSense("acierto", sense("Acción de acertar."))).toBe("family");
+    expect(checkSense("colgante", sense("Que cuelga."))).toBe("family");
+  });
+
+  it("refuses a short word the Word is built on", () => {
+    expect(checkSense("sanador", sense("Que sana."))).toBe("family");
+    expect(checkSense("asmático", sense("Que padece asma."))).toBe("family");
+    expect(checkSense("cazador", sense("El que caza."))).toBe("family");
+  });
+
+  it("allows a common word the Word merely starts with", () => {
+    expect(
+      checkSense("comodín", sense("Carta que vale como cualquier otra.")),
+    ).toBeNull();
+    expect(
+      checkSense("parabién", sense("Felicitación dirigida para alguien.")),
+    ).toBeNull();
+    expect(
+      checkSense("estanco", sense("Tienda donde se venden sellos y está.")),
+    ).toBeNull();
+  });
+
   it("allows short words that merely look like the Word", () => {
     expect(
       checkSense("solana", sense("Donde da el sol en la casa.")),
@@ -254,6 +278,39 @@ describe("checkSense", () => {
     }
   });
 
+  it("refuses the name of a letter, which the Rosco shows", () => {
+    expect(checkSense("eñe", sense("Nombre de la letra ñ."))).toBe(
+      "letter-name",
+    );
+    expect(checkSense("efe", sense("Nombre de la letra f"))).toBe(
+      "letter-name",
+    );
+    expect(
+      checkSense(
+        "ele",
+        sense("Nombre de la letra L (duodécima letra del alfabeto)."),
+      ),
+    ).toBe("letter-name");
+  });
+
+  it("accepts a Greek letter's name, which isn't given away", () => {
+    expect(
+      checkSense(
+        "lambda",
+        sense("Nombre de la letra λ, undécima del alfabeto griego."),
+      ),
+    ).toBeNull();
+    expect(
+      checkSense("beta", sense("Segunda letra del alfabeto griego.")),
+    ).toBeNull();
+  });
+
+  it("refuses a one-word sense, a bare synonym rather than a definition", () => {
+    expect(checkSense("señorear", sense("Dominar."))).toBe("too-short");
+    expect(checkSense("ajiaceite", sense("Ajoaceite"))).toBe("too-short");
+    expect(checkSense("señorear", sense("Mandar como dueño."))).toBeNull();
+  });
+
   it("refuses a sense over 30 words", () => {
     const words = (count: number) => Array(count).fill("algo").join(" ");
 
@@ -305,8 +362,8 @@ describe("pickClue", () => {
       ]),
     ).toBe("Mineral de color gris.");
     expect(
-      pickClue("mendaz", [sense("Falso. ^([definición imprecisa]).")]),
-    ).toBe("Falso.");
+      pickClue("mendaz", [sense("Que miente. ^([definición imprecisa]).")]),
+    ).toBe("Que miente.");
     expect(
       pickClue("temor", [sense("Pasión del ánimo. :*Sinónimo: miedo..")]),
     ).toBe("Pasión del ánimo.");
@@ -318,6 +375,24 @@ describe("pickClue", () => {
     expect(pickClue("acceso", [sense("Acción de llegar o entrar..")])).toBe(
       "Acción de llegar o entrar.",
     );
+  });
+
+  it("passes over a one-word sense for its next sense", () => {
+    expect(
+      pickClue("señorear", [
+        sense("Dominar."),
+        sense("Mandar uno en algo como dueño."),
+      ]),
+    ).toBe("Mandar uno en algo como dueño.");
+  });
+
+  it("passes over a letter's name for its next sense", () => {
+    expect(
+      pickClue("jota", [
+        sense("Nombre de la letra j."),
+        sense("Baile popular de Aragón."),
+      ]),
+    ).toBe("Baile popular de Aragón.");
   });
 
   it("gives nothing when no sense passes", () => {

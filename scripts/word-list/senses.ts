@@ -40,7 +40,9 @@ export type SenseProblem =
   | "regional"
   | "vulgar"
   | "rae-source"
-  | "too-long";
+  | "too-short"
+  | "too-long"
+  | "letter-name";
 
 /** The longest Clue, in words, the Host should have to read aloud. */
 const MAX_WORDS = 30;
@@ -50,6 +52,46 @@ const MAX_WORDS = 30;
  * a shorter Word ("uvas" for "uva"), are of its family.
  */
 const FAMILY_PREFIX = 5;
+
+/**
+ * Glosses naming a letter of the alphabet, "Nombre de la letra ñ.": the
+ * Rosco shows the letter, so they give the answer away. Not a Greek
+ * letter's name ("Nombre de la letra λ"), which is still a Clue.
+ */
+const LETTER_NAME = /^nombre de la letra [a-zñ](?![\p{L}])/iu;
+
+/**
+ * Words of the sense this long or longer that the Word starts with are of
+ * its family ("sana" for "sanador"); shorter ones ("sol" for "solana")
+ * too often merely look like it.
+ */
+const SHORT_FAMILY_WORD = 4;
+
+/**
+ * Common words, normalized, that a Word may start with without being of
+ * their family: "para" for "parabién", "como" for "comodín".
+ */
+const FUNCTION_WORDS = new Set([
+  "algo",
+  "cada",
+  "como",
+  "cual",
+  "desde",
+  "entre",
+  "esta",
+  "estas",
+  "este",
+  "estos",
+  "hacia",
+  "hasta",
+  "otra",
+  "otro",
+  "para",
+  "pero",
+  "sobre",
+  "toda",
+  "todo",
+]);
 
 /** Glosses that only point to another entry or form, maybe after a scientific name. */
 const CROSS_REFERENCE =
@@ -152,7 +194,11 @@ export function checkSense(word: string, sense: Sense): SenseProblem | null {
   if (sense.sources.some((source) => RAE_SOURCE.test(source))) {
     return "rae-source";
   }
-  if (text.split(" ").length > MAX_WORDS) return "too-long";
+  const length = text.split(" ").length;
+  // One word is a bare synonym or variant ("Dominar."), not a definition.
+  if (length === 1) return "too-short";
+  if (length > MAX_WORDS) return "too-long";
+  if (LETTER_NAME.test(text)) return "letter-name";
   return null;
 }
 
@@ -257,12 +303,29 @@ function clean(gloss: string): string {
     .replace(/\.{2,}$/u, ".");
 }
 
-/** Whether the text holds a word built on the same stem, like "articula" for "articulador". */
+/**
+ * Whether the text holds a word of the Word's family: one built on the same
+ * stem, like "articula" for "articulador", even when the stem changes
+ * ("enmienda" for "enmendador"), or a short word the Word is built on, like
+ * "sana" for "sanador".
+ */
 function hasFamilyWord(text: string, word: string): boolean {
-  const stem = normalize(word).slice(0, FAMILY_PREFIX);
+  const normalized = normalize(word);
+  const stem = undoStemChange(normalized).slice(0, FAMILY_PREFIX);
   return normalize(text)
     .split(/[^a-zñ]+/u)
-    .some((each) => each.startsWith(stem));
+    .some(
+      (each) =>
+        undoStemChange(each).startsWith(stem) ||
+        (each.length >= SHORT_FAMILY_WORD &&
+          !FUNCTION_WORDS.has(each) &&
+          normalized.startsWith(each)),
+    );
+}
+
+/** The word with "ie" and "ue" back to the "e" and "o" they come from in a changing stem. */
+function undoStemChange(word: string): string {
+  return word.replaceAll("ie", "e").replaceAll("ue", "o");
 }
 
 /** Words of a synonym's note for an old or rare use: "hoy desusado", "anticuado o literario". */
