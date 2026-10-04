@@ -170,15 +170,40 @@ describe("checkSense", () => {
     }
   });
 
-  it("keeps a merely derogatory or colloquial sense", () => {
+  it("refuses a sense labelled offensive in free text", () => {
+    for (const tag of [
+      "se usa como insulto",
+      "sexista",
+      "de origen ofensivo",
+      "en ciertos contextos se considera vulgar",
+    ]) {
+      expect(
+        checkSense("palabro", sense("Algo feo.", { tags: [tag] })),
+        tag,
+      ).toBe("vulgar");
+    }
+  });
+
+  it("keeps a sense labelled a nonstandard form", () => {
     expect(
-      checkSense(
-        "casucha",
-        sense("Casa pequeña y mal construida.", {
-          tags: ["derogatory", "colloquial"],
-        }),
-      ),
+      checkSense("palabro", sense("Algo feo.", { tags: ["vulgarismo"] })),
     ).toBeNull();
+  });
+
+  it("keeps a merely derogatory or colloquial sense", () => {
+    for (const tags of [
+      ["derogatory", "colloquial"],
+      ["es despectivo"],
+      ["peyorativo"],
+    ]) {
+      expect(
+        checkSense(
+          "casucha",
+          sense("Casa pequeña y mal construida.", { tags }),
+        ),
+        tags[0],
+      ).toBeNull();
+    }
   });
 
   it("refuses a sense that cites a modern RAE dictionary", () => {

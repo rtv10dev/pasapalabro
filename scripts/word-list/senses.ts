@@ -57,8 +57,6 @@ const OLD_OR_RARE = new Set([
   "sin uso",
 ]);
 
-const VULGAR = new Set(["vulgar", "malsonante", "ofensivo", "obsceno"]);
-
 /** Labels for all of Spain, not a region of it. */
 const COUNTRY_WIDE = new Set(["Spain", "Europe"]);
 
@@ -134,7 +132,7 @@ export function checkSense(word: string, sense: Sense): SenseProblem | null {
   }
   if (isOutsideSpain(sense.tags)) return "not-spain";
   if (isRegional(sense.tags)) return "regional";
-  if (sense.tags.some((tag) => VULGAR.has(tag.toLowerCase()))) return "vulgar";
+  if (isOffensive(sense.tags)) return "vulgar";
   if (sense.sources.some((source) => RAE_SOURCE.test(source))) {
     return "rae-source";
   }
@@ -153,13 +151,16 @@ export function pickClue(
 
 /**
  * Labels, or words of a free-text label, for an offensive sense: "vulgar",
- * "se usa como insulto"… Not "vulgarismo", a nonstandard form. Wider than
- * VULGAR, which checkSense matches exactly: a Blocklist candidate only asks
- * for a review, while widening VULGAR would change the Clues of the Words.
+ * "se usa como insulto", "de origen ofensivo"… Not "vulgarismo", a
+ * nonstandard form.
  */
 const OFFENSIVE = /\b(vulgar|malsonante|ofensivo|obsceno|insulto|sexista)\b/iu;
 
-/** Labels, or words of a free-text label, for a derogatory sense. */
+/**
+ * Labels, or words of a free-text label, for a derogatory sense. Unlike an
+ * offensive one, it can be a Clue: most are mild insults the Word List keeps
+ * (tonto, zoquete), and the Blocklist holds the slurs.
+ */
 const DEROGATORY = /\b(derogatory|despectivo|derogativo|peyorativo)\b/iu;
 
 /**
@@ -167,9 +168,7 @@ const DEROGATORY = /\b(derogatory|despectivo|derogativo|peyorativo)\b/iu;
  * meaning vulgar only elsewhere doesn't make the Word a Blocklist candidate.
  */
 export function isOffensiveInSpain(sense: Sense): boolean {
-  return (
-    sense.tags.some((tag) => OFFENSIVE.test(tag)) && !isOutsideSpain(sense.tags)
-  );
+  return isOffensive(sense.tags) && !isOutsideSpain(sense.tags);
 }
 
 /** Whether the sense is labelled derogatory (despectivo). */
@@ -200,6 +199,11 @@ function hasFamilyWord(text: string, word: string): boolean {
   return normalize(text)
     .split(/[^a-zñ]+/u)
     .some((each) => each.startsWith(stem));
+}
+
+/** Whether the sense is labelled vulgar or offensive, anywhere. */
+function isOffensive(tags: readonly string[]): boolean {
+  return tags.some((tag) => OFFENSIVE.test(tag));
 }
 
 /** Whether the sense is labelled for regions of Spain, not for all of it. */
