@@ -8,6 +8,11 @@ export interface Word {
   prevalence: number;
   /** The dictionary definition the Host reads aloud. */
   clue: string;
+  /**
+   * Synonyms the Host can also accept, from the Clue's sense in Wikcionario.
+   * Left out when there are none, as for most Words.
+   */
+  otherAnswers?: string[];
 }
 
 /** The Prevalence a Word needs to be drawn: at least `min`, below `max`. */

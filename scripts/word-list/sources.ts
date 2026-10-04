@@ -76,6 +76,15 @@ const entrySchema = z.object({
       }),
     ),
   ),
+  synonyms: z.optional(
+    z.array(
+      z.object({
+        word: z.string(),
+        sense_index: z.optional(z.string()),
+        note: z.optional(z.string()),
+      }),
+    ),
+  ),
 });
 
 /**
@@ -102,6 +111,7 @@ export async function readSenses(
     if (lang_code !== "es") continue;
     if (!partsOfSpeech.get(word)?.has(pos)) continue;
     const cited = citations.get(word);
+    const synonyms = entry.data.synonyms ?? [];
     const entrySenses = (entry.data.senses ?? []).map(
       ({ glosses = [], tags = [], raw_tags = [], sense_index = "" }) => ({
         gloss: glosses.join(" "),
@@ -109,6 +119,13 @@ export async function readSenses(
         // that only kaikki's own tags read as places.
         tags: [...tags, ...raw_tags.map((tag) => tag.toLowerCase())],
         sources: cited?.get(sense_index) ?? [],
+        // kaikki lists an entry's synonyms together, each with its sense.
+        synonyms: synonyms
+          .filter(
+            (synonym) =>
+              sense_index !== "" && synonym.sense_index === sense_index,
+          )
+          .map(({ word, note = "" }) => ({ word, note })),
       }),
     );
     senses.set(word, [...(senses.get(word) ?? []), ...entrySenses]);

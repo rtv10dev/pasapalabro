@@ -1,5 +1,9 @@
 import { checkClue, type ClueProblem } from "../../src/clues/checks";
-import { CONTAINS_LETTERS, normalize } from "../../src/shared/rosco";
+import {
+  CONTAINS_LETTERS,
+  MAX_OTHER_ANSWERS,
+  normalize,
+} from "../../src/shared/rosco";
 import { lettersFor } from "../../src/shared/word-list";
 
 /** One sense of a Word in Wikcionario, as the build reads it. */
@@ -12,6 +16,18 @@ export interface Sense {
   tags: readonly string[];
   /** The templates of the dictionaries its references cite: "DRAE2001", "DLE1925"… */
   sources: readonly string[];
+  /** Synonyms Wikcionario gives for this sense. */
+  synonyms: readonly Synonym[];
+}
+
+/** A synonym of a sense in Wikcionario. */
+export interface Synonym {
+  word: string;
+  /**
+   * Its usage and region note, free Spanish text or empty: "coloquial",
+   * "anticuado o literario", "Argentina, Chile; malsonante"…
+   */
+  note: string;
 }
 
 /** Why a sense can't be a Word's Clue (ADR 0005). */
@@ -145,8 +161,50 @@ export function pickClue(
   word: string,
   senses: readonly Sense[],
 ): string | null {
-  const first = senses.find((sense) => checkSense(word, sense) === null);
-  return first === undefined ? null : clean(first.gloss);
+  const clue = clueSense(word, senses);
+  return clue === undefined ? null : clean(clue.gloss);
+}
+
+/**
+ * The other answers of the Word's Clue: the first MAX_OTHER_ANSWERS synonyms
+ * of its sense that are themselves in `words`, answer every letter the Word
+ * answers, pass the Clue checks as its answer, and aren't labelled
+ * offensive, old or rare, or for places other than Spain. Usually none.
+ */
+export function pickOtherAnswers(
+  word: string,
+  senses: readonly Sense[],
+  words: ReadonlySet<string>,
+): string[] {
+  const clue = clueSense(word, senses);
+  if (clue === undefined) return [];
+  const text = clean(clue.gloss);
+  const letters = lettersFor(word);
+  const kept: string[] = [];
+  for (const { word: other, note } of clue.synonyms) {
+    if (kept.length === MAX_OTHER_ANSWERS) break;
+    if (!words.has(other) || !isFitNote(note)) continue;
+    const earlier = [word, ...kept];
+    const passes = letters.every(
+      (letter) =>
+        checkClue(
+          {
+            letter,
+            contains: CONTAINS_LETTERS.includes(letter),
+            text,
+            answer: other,
+          },
+          earlier,
+        ) === null,
+    );
+    if (passes) kept.push(other);
+  }
+  return kept;
+}
+
+/** The Word's first sense that passes, which is its Clue. */
+function clueSense(word: string, senses: readonly Sense[]): Sense | undefined {
+  return senses.find((sense) => checkSense(word, sense) === null);
 }
 
 /**
@@ -205,6 +263,26 @@ function hasFamilyWord(text: string, word: string): boolean {
   return normalize(text)
     .split(/[^a-zñ]+/u)
     .some((each) => each.startsWith(stem));
+}
+
+/** Words of a synonym's note for an old or rare use: "hoy desusado", "anticuado o literario". */
+const OLD_OR_RARE_NOTE =
+  /\b(anticuad[oa]|antigu[oa]|arcaic[oa]|desusad[oa]|desuso|obsolet[oa]|poco (usad[oa]|frecuente)|menos usad[oa]|sin uso)\b/iu;
+
+/** Lower-case words of a synonym's note for places outside Spain. */
+const OUTSIDE_SPAIN_NOTE =
+  /\b(rioplatense|andin[oa]|lunfard[oa]|lunfardismo|\p{L}*americanos?|\p{L}*americanas?)\b/iu;
+
+/**
+ * Whether a synonym with this note can be an other answer: not offensive,
+ * nor old or rare, and used across Spain, as a Clue's sense must be. A note
+ * naming Spain is fine wherever else it names; otherwise any capitalized
+ * word is taken for a place, in Spain or out of it.
+ */
+function isFitNote(note: string): boolean {
+  if (isOffensive([note]) || OLD_OR_RARE_NOTE.test(note)) return false;
+  if (/\bEspaña\b/u.test(note)) return true;
+  return !/\p{Lu}/u.test(note) && !OUTSIDE_SPAIN_NOTE.test(note);
 }
 
 /** Whether the sense is labelled vulgar or offensive, anywhere. */

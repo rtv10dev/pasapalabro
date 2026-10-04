@@ -51,7 +51,7 @@ export function drawRosco(
       contains: CONTAINS_LETTERS.includes(letter),
       text: drawn.word.clue,
       answer: drawn.word.word,
-      otherAnswers: [],
+      otherAnswers: [...(drawn.word.otherAnswers ?? [])],
     };
   });
 }

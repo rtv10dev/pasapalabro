@@ -88,6 +88,25 @@ describe("drawRosco", () => {
     expect(last[2]?.answer).toBe("cfacilísima");
   });
 
+  it("gives a Clue its Word's other answers", () => {
+    const words: Word[] = [
+      {
+        word: "cfacilona",
+        prevalence: 98,
+        clue: "Definición de cfacilona",
+        otherAnswers: ["cfacilota", "cfacilita"],
+      },
+      ...WORDS,
+    ];
+
+    const rosco = drawRosco(words, "easy", [], always(0));
+
+    expect(rosco[2]).toMatchObject({
+      answer: "cfacilona",
+      otherAnswers: ["cfacilota", "cfacilita"],
+    });
+  });
+
   it("never draws an avoided answer, compared without accents or case", () => {
     const rosco = drawRosco(
       WORDS,

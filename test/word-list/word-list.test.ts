@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import * as z from "zod/mini";
 import { parseBlocklist } from "../../scripts/word-list/blocklist";
 import { checkClue } from "../../src/clues/checks";
-import { CONTAINS_LETTERS, LETTERS } from "../../src/shared/rosco";
+import {
+  CONTAINS_LETTERS,
+  LETTERS,
+  MAX_OTHER_ANSWERS,
+} from "../../src/shared/rosco";
 import {
   PREVALENCE,
   RECENT_ROSCOS,
@@ -22,7 +26,12 @@ const fileSchema = z.object({
     }),
   ),
   words: z.array(
-    z.object({ word: z.string(), prevalence: z.number(), clue: z.string() }),
+    z.object({
+      word: z.string(),
+      prevalence: z.number(),
+      clue: z.string(),
+      otherAnswers: z.optional(z.array(z.string())),
+    }),
   ),
 });
 
@@ -83,6 +92,37 @@ describe("the committed Word List", () => {
           [],
         );
         return problem === null ? [] : [{ word, letter, problem }];
+      });
+    });
+    expect(failing).toEqual([]);
+  });
+
+  it("gives some Words other answers from their Wikcionario synonyms", () => {
+    const withOthers = words.filter(({ otherAnswers }) => otherAnswers);
+    expect(withOthers.length).toBeGreaterThan(500);
+  });
+
+  it("gives Words only other answers that are Words, pass the Clue checks for each letter, and are few", () => {
+    const inList = new Set(words.map(({ word }) => word));
+    const failing = words.flatMap(({ word, clue, otherAnswers = [] }) => {
+      if (otherAnswers.length > MAX_OTHER_ANSWERS) {
+        return [{ word, problem: "too many" }];
+      }
+      return otherAnswers.flatMap((other, index) => {
+        if (!inList.has(other)) return [{ word, other, problem: "not a Word" }];
+        const earlier = [word, ...otherAnswers.slice(0, index)];
+        return lettersFor(word).flatMap((letter) => {
+          const problem = checkClue(
+            {
+              letter,
+              contains: CONTAINS_LETTERS.includes(letter),
+              text: clue,
+              answer: other,
+            },
+            earlier,
+          );
+          return problem === null ? [] : [{ word, other, letter, problem }];
+        });
       });
     });
     expect(failing).toEqual([]);

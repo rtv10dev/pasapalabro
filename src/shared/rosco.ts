@@ -9,6 +9,9 @@ export type Letter = (typeof LETTERS)[number];
 /** The letters whose Clue may be "contiene" instead of "empieza por". */
 export const CONTAINS_LETTERS: readonly Letter[] = ["Ñ", "X", "Y"];
 
+/** The most other answers a Clue lists, so the Host takes them in at a glance. */
+export const MAX_OTHER_ANSWERS = 2;
+
 export interface Clue {
   letter: Letter;
   /** True for "contiene", false for "empieza por". */
@@ -17,7 +20,7 @@ export interface Clue {
   text: string;
   answer: string;
   /**
-   * Up to two other answers with the same letter that the Host can also
+   * Up to MAX_OTHER_ANSWERS other answers with the same letter that the Host can also
    * accept. Missing in a Clue stored before they existed: read it as none.
    */
   otherAnswers?: string[];

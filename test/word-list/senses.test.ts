@@ -4,11 +4,17 @@ import {
   isDerogatory,
   isOffensiveInSpain,
   pickClue,
+  pickOtherAnswers,
   type Sense,
+  type Synonym,
 } from "../../scripts/word-list/senses";
 
 function sense(gloss: string, extra: Partial<Sense> = {}): Sense {
-  return { gloss, tags: [], sources: [], ...extra };
+  return { gloss, tags: [], sources: [], synonyms: [], ...extra };
+}
+
+function synonym(word: string, note = ""): Synonym {
+  return { word, note };
 }
 
 describe("checkSense", () => {
@@ -319,6 +325,206 @@ describe("pickClue", () => {
       null,
     );
     expect(pickClue("graduar", [])).toBeNull();
+  });
+});
+
+describe("pickOtherAnswers", () => {
+  /** Words of the Word List, as the build passes them. */
+  const WORDS = new Set([
+    "bello",
+    "bueno",
+    "bárbaro",
+    "hermoso",
+    "lindo",
+    "precioso",
+    "coyunda",
+    "atadura",
+    "muñeca",
+    "monigote",
+    "pañuelo",
+    "cuerda",
+  ]);
+
+  it("takes the synonyms of the sense that is the Clue", () => {
+    expect(
+      pickOtherAnswers(
+        "bonito",
+        [
+          sense("Lindo antiguo.", {
+            tags: ["outdated"],
+            synonyms: [synonym("lindo")],
+          }),
+          sense("Agradable a la vista.", { synonyms: [synonym("bello")] }),
+          sense("Pez parecido al atún.", { synonyms: [synonym("barrilete")] }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["bello"]);
+  });
+
+  it("keeps only synonyms that are Words themselves", () => {
+    expect(
+      pickOtherAnswers(
+        "bonito",
+        [
+          sense("Agradable a la vista.", {
+            synonyms: [synonym("bellísimo"), synonym("bello")],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["bello"]);
+  });
+
+  it("keeps only synonyms that start with the Word's letter", () => {
+    expect(
+      pickOtherAnswers(
+        "bonito",
+        [
+          sense("Agradable a la vista.", {
+            synonyms: [synonym("hermoso"), synonym("bello")],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["bello"]);
+  });
+
+  it("keeps only synonyms that contain Ñ, X or Y when the Word does", () => {
+    expect(
+      pickOtherAnswers(
+        "yugo",
+        [
+          sense("Instrumento que une a dos bueyes.", {
+            synonyms: [synonym("atadura"), synonym("coyunda")],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["coyunda"]);
+  });
+
+  it("keeps only synonyms that answer every letter the Word answers", () => {
+    expect(
+      pickOtherAnswers(
+        "muñeco",
+        [
+          sense("Figurilla de persona.", {
+            synonyms: [
+              synonym("monigote"),
+              synonym("pañuelo"),
+              synonym("muñeca"),
+            ],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["muñeca"]);
+  });
+
+  it("drops synonyms that fail the Clue checks", () => {
+    expect(
+      pickOtherAnswers(
+        "cordel",
+        [
+          sense("Cuerda delgada.", {
+            synonyms: [
+              synonym("cuerda"),
+              synonym("cuerda fina"),
+              synonym("cordel"),
+              synonym("coyunda"),
+              synonym("Coyunda"),
+            ],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["coyunda"]);
+  });
+
+  it("drops synonyms noted as offensive, old or rare, or not of all of Spain", () => {
+    for (const note of [
+      "malsonante",
+      "Argentina, Chile; malsonante",
+      "vulgar",
+      "anticuado",
+      "anticuado o literario",
+      "hoy desusado",
+      "en desuso",
+      "obsoleto, salvo en Derecho",
+      "poco usado",
+      "poco frecuente",
+      "Chile",
+      "sur de Chile",
+      "Bolivia y Uruguay",
+      "Andalucía",
+      "Venezuela, coloquial",
+      "rioplatense",
+      "andino",
+      "lunfardo",
+      "algunos países latinoamericanos",
+    ]) {
+      expect(
+        pickOtherAnswers(
+          "bonito",
+          [
+            sense("Agradable a la vista.", {
+              synonyms: [synonym("bello", note)],
+            }),
+          ],
+          WORDS,
+        ),
+        note,
+      ).toEqual([]);
+    }
+  });
+
+  it("keeps synonyms used across Spain, wherever else, or merely colloquial", () => {
+    for (const note of [
+      "España",
+      "Argentina, España",
+      "Murcia, España",
+      "coloquial",
+      "literario",
+      "despectivo",
+    ]) {
+      expect(
+        pickOtherAnswers(
+          "bonito",
+          [
+            sense("Agradable a la vista.", {
+              synonyms: [synonym("bello", note)],
+            }),
+          ],
+          WORDS,
+        ),
+        note,
+      ).toEqual(["bello"]);
+    }
+  });
+
+  it("keeps at most two", () => {
+    expect(
+      pickOtherAnswers(
+        "bonito",
+        [
+          sense("Agradable a la vista.", {
+            synonyms: [synonym("bello"), synonym("bueno"), synonym("bárbaro")],
+          }),
+        ],
+        WORDS,
+      ),
+    ).toEqual(["bello", "bueno"]);
+  });
+
+  it("gives none when no sense passes", () => {
+    expect(
+      pickOtherAnswers(
+        "bonito",
+        [sense("Bello.", { tags: ["outdated"], synonyms: [synonym("bello")] })],
+        WORDS,
+      ),
+    ).toEqual([]);
   });
 });
 

@@ -9,7 +9,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { PREVALENCE, inRange, type Word } from "../../src/shared/word-list";
 import { parseBlocklist } from "./blocklist";
-import { checkSense, pickClue } from "./senses";
+import { checkSense, pickClue, pickOtherAnswers } from "./senses";
 import { CACHE, download, readSenses, readWords } from "./sources";
 import { citationsBySense } from "./wikitext";
 
@@ -87,8 +87,21 @@ async function main(): Promise<void> {
   }
   words.sort((one, other) => one.word.localeCompare(other.word, "es"));
 
+  // Other answers must be Words themselves, so they wait for every Clue.
+  const inWordList = new Set(words.map(({ word }) => word));
+  for (const word of words) {
+    const otherAnswers = pickOtherAnswers(
+      word.word,
+      senses.get(word.word) ?? [],
+      inWordList,
+    );
+    if (otherAnswers.length > 0) word.otherAnswers = otherAnswers;
+  }
+
   await writeWordList(words);
   console.log(`Wrote ${words.length} Words to ${OUTPUT}`);
+  const withOthers = words.filter(({ otherAnswers }) => otherAnswers).length;
+  console.log(`${withOthers} of them with other answers`);
   console.log("Left out:", Object.fromEntries(dropped));
   for (const [name, range] of Object.entries(PREVALENCE)) {
     const count = words.filter(({ prevalence }) =>
