@@ -115,7 +115,7 @@ _UI_: Fallo
 _Avoid_: Error, wrong
 
 **Difficulty**:
-The level of a Match (Easy, Normal or Hard) that sets how many people know the Words its Roscos are drawn from; every Rosco also includes a couple of very hard Clues, whose Words almost nobody knows.
+The level of a Match (Easy, Normal or Hard) that sets how many people know the Words its Roscos are drawn from.
 _UI_: Dificultad (Fácil, Normal, Difícil)
 _Avoid_: Level, mode
 

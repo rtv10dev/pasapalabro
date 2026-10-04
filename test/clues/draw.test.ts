@@ -9,12 +9,12 @@ import {
 } from "../../src/shared/rosco";
 import type { Word } from "../../src/shared/word-list";
 
-type Band = Difficulty | "veryHard" | "none";
+type Band = Difficulty | "none";
 
 /**
  * Each letter's Words in the tiny Word List, by the band their Prevalence
- * falls in; "none" is between the hard and the very hard bands, so never
- * drawn. Every value sits on the edge of its band.
+ * falls in; "none" is below the hard band, so never drawn. Every value sits
+ * on the edge of its band.
  */
 const WORDS_PER_LETTER: { suffix: string; prevalence: number; band: Band }[] = [
   { suffix: "media", prevalence: 50, band: "none" },
@@ -22,9 +22,7 @@ const WORDS_PER_LETTER: { suffix: string; prevalence: number; band: Band }[] = [
   { suffix: "facilísima", prevalence: 100, band: "easy" },
   { suffix: "normal", prevalence: 85, band: "normal" },
   { suffix: "difícil", prevalence: 60, band: "hard" },
-  { suffix: "rara", prevalence: 39.9, band: "veryHard" },
-  { suffix: "rarísima", prevalence: 0, band: "veryHard" },
-  { suffix: "límite", prevalence: 40, band: "none" },
+  { suffix: "rara", prevalence: 59.9, band: "none" },
 ];
 
 /**
@@ -72,30 +70,20 @@ describe("drawRosco", () => {
     }
   });
 
-  it.each(DIFFICULTIES)(
-    "draws %s Words, except exactly two very hard Clues",
-    (difficulty) => {
-      const rosco = drawRosco(WORDS, difficulty, [], always(0.3));
+  it.each(DIFFICULTIES)("draws only %s Words", (difficulty) => {
+    for (const value of [0, 0.3, 0.99]) {
+      const rosco = drawRosco(WORDS, difficulty, [], always(value));
 
-      const veryHard = rosco.filter((clue) => clue.veryHard);
-      expect(veryHard).toHaveLength(2);
-      for (const { answer } of veryHard) {
-        expect(BANDS.get(answer)).toBe("veryHard");
-      }
-      for (const { answer } of rosco.filter((clue) => !clue.veryHard)) {
+      for (const { answer } of rosco) {
         expect(BANDS.get(answer)).toBe(difficulty);
       }
-    },
-  );
+    }
+  });
 
-  it("picks the Words and the very hard letters by the randomness", () => {
+  it("picks the Words by the randomness", () => {
     const first = drawRosco(WORDS, "easy", [], always(0));
     const last = drawRosco(WORDS, "easy", [], always(0.99));
 
-    const veryHard = (rosco: typeof first) =>
-      rosco.filter((clue) => clue.veryHard).map(({ letter }) => letter);
-    expect(veryHard(first)).toEqual(["A", "B"]);
-    expect(veryHard(last)).toEqual(["Y", "Z"]);
     expect(first[2]?.answer).toBe("cfácil");
     expect(last[2]?.answer).toBe("cfacilísima");
   });
@@ -105,9 +93,8 @@ describe("drawRosco", () => {
       WORDS,
       "easy",
       ["CFÁCIL", "dfacilisima"],
-      () =>
-        // The very hard letters are A and B; then each Word is the first left.
-        0,
+      // Each Word is the first left.
+      always(0),
     );
 
     expect(rosco[2]?.answer).toBe("cfacilísima");

@@ -9,9 +9,6 @@ import {
 export type ClueProblem =
   "empty-clue" | "not-one-word" | "letter-rule" | "answer-in-clue" | "repeated";
 
-/** A Clue before it knows whether it is one of the very hard ones. */
-export type Candidate = Omit<Clue, "veryHard">;
-
 /** Answers this short are only refused in their Clue as whole words: "oso" is fine in "peligroso". */
 const SHORT_ANSWER = 3;
 
@@ -22,7 +19,7 @@ const SHORT_ANSWER = 3;
  * to the dictionary and the Host.
  */
 export function checkClue(
-  { letter, contains, text, answer }: Candidate,
+  { letter, contains, text, answer }: Clue,
   earlier: readonly string[],
 ): ClueProblem | null {
   if (text.trim() === "") return "empty-clue";

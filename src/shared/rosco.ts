@@ -21,8 +21,6 @@ export interface Clue {
    * accept. Missing in a Clue stored before they existed: read it as none.
    */
   otherAnswers?: string[];
-  /** One of the Rosco's very hard Clues, whatever its Difficulty. */
-  veryHard: boolean;
 }
 
 /** One Clue per letter, in the order of LETTERS. */

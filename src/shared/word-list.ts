@@ -17,14 +17,13 @@ export interface PrevalenceRange {
 }
 
 /**
- * The Prevalence of the Words each Difficulty draws from, and of the very
- * hard Clues every Rosco has. Starting values, to be tuned by playing.
+ * The Prevalence of the Words each Difficulty draws from. Starting values,
+ * to be tuned by playing.
  */
-export const PREVALENCE: Record<Difficulty | "veryHard", PrevalenceRange> = {
+export const PREVALENCE: Record<Difficulty, PrevalenceRange> = {
   easy: { min: 97, max: Infinity },
   normal: { min: 85, max: 97 },
   hard: { min: 60, max: 85 },
-  veryHard: { min: 0, max: 40 },
 };
 
 /** Whether a Word with this Prevalence is in the range. */

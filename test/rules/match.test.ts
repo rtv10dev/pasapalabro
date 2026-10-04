@@ -46,7 +46,6 @@ const ROSCO: Rosco = LETTERS.map((letter) => ({
   contains: false,
   text: `Definición de la ${letter}`,
   answer: `${letter}respuesta`,
-  veryHard: false,
 }));
 
 /** A Rosco that shares no answer with ROSCO, so both can be in one Match. */
