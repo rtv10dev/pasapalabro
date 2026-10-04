@@ -933,12 +933,22 @@ function rosco(view: RoscoView): HTMLElement {
 function count(view: RoscoView): Node {
   const letters = (result: LetterResult): number =>
     view.letters.filter((each) => each.result === result).length;
+  const hits = letters("hit");
+  const misses = letters("miss");
   return h(
     "span",
     { className: "count" },
-    h("span", { className: "hit" }, `${letters("hit")} aciertos`),
+    h(
+      "span",
+      { className: "hit" },
+      `${hits} ${hits === 1 ? "acierto" : "aciertos"}`,
+    ),
     " · ",
-    h("span", { className: "miss" }, `${letters("miss")} fallos`),
+    h(
+      "span",
+      { className: "miss" },
+      `${misses} ${misses === 1 ? "fallo" : "fallos"}`,
+    ),
   );
 }
 
