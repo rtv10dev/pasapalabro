@@ -961,20 +961,25 @@ describe("the letters", () => {
 const CLOCK_OUT = PLAY_STARTS + 180_000;
 
 describe("a Player finishing", () => {
-  it("happens when their Clock reaches zero, and the Turn passes at once", () => {
+  it("happens when their Clock reaches zero, and the Turn passes after the Handover", () => {
     const state = turnBegun();
 
     const atZero = playingView(state, ANA, CLOCK_OUT);
     expect(atZero).toMatchObject({
-      stage: "waiting",
+      stage: "handover",
       turn: "player2",
-      handoverMs: null,
+      handoverFrom: "player1",
+      handoverMs: 5000,
       revealed: null,
     });
     expect(atZero.roscos.player1).toMatchObject({
       clockMs: 0,
       finished: true,
       current: null,
+    });
+    expect(playingView(state, ANA, CLOCK_OUT + 5000)).toMatchObject({
+      stage: "waiting",
+      turn: "player2",
     });
   });
 
@@ -1041,6 +1046,30 @@ describe("the Player left once the other has finished", () => {
   /** When Bea's first Fallo is judged, and when the Handover after it ends. */
   const BEA_MISSES = BEA_BEGINS + 1000;
   const BEA_HANDED_OVER = BEA_MISSES + 5000;
+
+  it("ends the Match after a Handover when her Clock reaches zero too", () => {
+    const state = onlyBeaLeft();
+    const beaOut = BEA_BEGINS + 180_000;
+
+    expect(playingView(state, ANA, beaOut)).toMatchObject({
+      stage: "handover",
+      handoverFrom: "player2",
+      handoverMs: 5000,
+      revealed: null,
+    });
+    expect(rejection(state, ANA, { type: "begin-turn" }, at(beaOut))).toBe(
+      "turn-not-waiting",
+    );
+
+    const view = playingView(state, ANA, beaOut + 5000);
+    expect(view).toMatchObject({
+      stage: "over",
+      handoverMs: null,
+      revealed: null,
+      clue: null,
+    });
+    expect(view.roscos.player2.finished).toBe(true);
+  });
 
   it("stops after a Fallo: the Clock stops, every Device sees the answer, and the Turn stays hers", () => {
     const state = judged(onlyBeaLeft(), ANA, "miss", BEA_MISSES);
@@ -1183,26 +1212,6 @@ describe("the Player left once the other has finished", () => {
       stage: "over",
       revealed: null,
     });
-  });
-
-  it("ends the Match by finishing too", () => {
-    const view = playingView(onlyBeaLeft(), ANA, BEA_BEGINS + 180_000);
-
-    expect(view).toMatchObject({
-      stage: "over",
-      handoverMs: null,
-      revealed: null,
-      clue: null,
-    });
-    expect(view.roscos.player2.finished).toBe(true);
-    expect(
-      rejection(
-        onlyBeaLeft(),
-        ANA,
-        { type: "begin-turn" },
-        at(BEA_BEGINS + 180_000),
-      ),
-    ).toBe("turn-not-waiting");
   });
 });
 
@@ -1385,10 +1394,10 @@ describe("the next change time alone makes", () => {
       { type: "begin-turn" },
       at(CLOCK_OUT + 5000),
     );
-    const over = tick(beaBegun, CLOCK_OUT + 5000 + 180_000);
-    expect(playingView(over, ANA, CLOCK_OUT + 5000 + 180_000).stage).toBe(
-      "over",
-    );
+    // Bea's Clock runs out, then the Handover after it ends.
+    const ended = CLOCK_OUT + 5000 + 180_000 + 5000;
+    const over = tick(beaBegun, ended);
+    expect(playingView(over, ANA, ended).stage).toBe("over");
 
     expect(nextChange(over)).toBeNull();
     expect(nextChange(playersAssigned())).toBeNull();
@@ -1904,8 +1913,8 @@ describe("a Device going silent", () => {
 
     expect(playingView(state, CARLOS, CLOCK_OUT + 3000)).toMatchObject({
       turn: "player2",
-      stage: "waiting",
-      handoverMs: null,
+      stage: "handover",
+      handoverMs: 5000,
       pause: { missing: [idOf(state, BEA)], abandonMs: 57_000 },
     });
   });

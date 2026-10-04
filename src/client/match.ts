@@ -747,6 +747,9 @@ function playerScreen(view: PlayingView): Node[] {
 function handover(view: PlayingView, nextName: string): Node[] {
   const ending = PLAYER_ROLES.every((role) => view.roscos[role].finished);
   const samePlayer = view.handoverFrom === view.turn;
+  // A Miss stops the Clock with time left: at zero, it ran out.
+  const timeUp =
+    view.handoverFrom !== null && view.roscos[view.handoverFrom].clockMs <= 0;
   const display = h("p", { className: "countdown" });
   ticking(display, view.handoverMs ?? 0, (left) =>
     String(Math.ceil(left / 1000)),
@@ -755,7 +758,13 @@ function handover(view: PlayingView, nextName: string): Node[] {
     h(
       "h1",
       {},
-      ending ? "Último fallo" : samePlayer ? "Fallo" : "Cambio de turno",
+      timeUp
+        ? "¡Se acabó el tiempo!"
+        : ending
+          ? "Último fallo"
+          : samePlayer
+            ? "Fallo"
+            : "Cambio de turno",
     ),
     view.revealed &&
       h(

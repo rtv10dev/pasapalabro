@@ -76,11 +76,7 @@ describe("the Turns of a Match", () => {
 
     expect(await fireAlarm(id)).toBe(true);
 
-    // With no answer to reveal, the Turn passes with no Handover.
-    const view = await nextPlaying(
-      host,
-      (each) => each.stage === "waiting" && each.turn !== first,
-    );
+    const view = await nextPlaying(host, (each) => each.stage === "handover");
     expect(view.roscos[first]).toMatchObject({ clockMs: 0, finished: true });
   });
 
@@ -89,7 +85,8 @@ describe("the Turns of a Match", () => {
     await nextPlaying(host);
     host.send({ type: "begin-turn" });
     await nextPlaying(host, (view) => view.stage === "running");
-    // The first Player's Clock runs out, and the Turn passes.
+    // The first Player's Clock runs out, then the Handover ends.
+    expect(await fireAlarm(id)).toBe(true);
     expect(await fireAlarm(id)).toBe(true);
     await nextPlaying(
       player,

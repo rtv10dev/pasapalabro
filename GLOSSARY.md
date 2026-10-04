@@ -90,8 +90,8 @@ _UI_: Turno
 _Avoid_: Round, go
 
 **Handover**:
-The short countdown after a Turn that ends on a Miss, during which its answer is shown on every Device; a Turn that ends otherwise has none. Then, unless the other Player has finished, the Turn passes to the other Player; in a Match that isn't Hosted, the Players also swap who plays and who is Host.
-_UI_: Cambio de turno (Fallo when the Turn stays with the same Player)
+The short countdown after a Turn that ends on a Miss, during which its answer is shown on every Device, or on the Clock reaching zero; a Turn that ends on a Pasapalabra has none. Then, unless the other Player has finished, the Turn passes to the other Player; in a Match that isn't Hosted, the Players also swap who plays and who is Host.
+_UI_: Cambio de turno (Fallo when the Turn stays with the same Player; ¡Se acabó el tiempo! when the Clock reached zero)
 _Avoid_: Transition, pause, break
 
 **Pause**:

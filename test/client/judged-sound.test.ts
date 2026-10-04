@@ -158,7 +158,7 @@ describe("judgedSound", () => {
   it("is none when the Clock runs out, which finishes the Rosco", () => {
     const before = running(PLAYER1);
     const after: PlayingView = {
-      ...passedOn(before),
+      ...handedOver(before),
       roscos: {
         ...before.roscos,
         player1: { ...rosco([], null), clockMs: 0 },
