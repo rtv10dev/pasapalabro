@@ -25,6 +25,7 @@ import { deviceKeyFor, rememberDeviceKey } from "./device-key";
 import { h, showStatus } from "./dom";
 import { judgedSound } from "./judged-sound";
 import { mirror, startCamera, stopCamera } from "./mirror";
+import { rememberName, rememberedName } from "./remembered-name";
 import { rememberShowAnswers, showsAnswers } from "./show-answers";
 import { playSound, stopTicks, tickLastSeconds, unlockAudio } from "./sound";
 import { wikcionarioUrl } from "./wikcionario";
@@ -324,12 +325,19 @@ function share(): Node {
   );
 }
 
+/** What's typed in the join form, kept while the Lobby re-renders around it. */
+let joinDraft: string | null = null;
+
 function joinForm(send: Send): Node {
   const input = h("input", {
     name: "name",
     required: true,
     maxLength: MAX_NAME_LENGTH,
     enterKeyHint: "go",
+    value: joinDraft ?? rememberedName(),
+    oninput: () => {
+      joinDraft = input.value;
+    },
   });
   // Not in TypeScript's AutoFill type, though valid HTML.
   input.setAttribute("autocomplete", "nickname");
@@ -339,6 +347,7 @@ function joinForm(send: Send): Node {
       className: "stack",
       onsubmit: (event: SubmitEvent) => {
         event.preventDefault();
+        rememberName(input.value);
         send({ type: "join", name: input.value });
       },
     },

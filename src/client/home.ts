@@ -6,6 +6,7 @@ import {
 } from "../shared/protocol";
 import { newDeviceKey, rememberDeviceKey } from "./device-key";
 import { showStatus } from "./dom";
+import { rememberName, rememberedName } from "./remembered-name";
 import { scanQr } from "./scan";
 
 export function setUpHome(): void {
@@ -15,7 +16,10 @@ export function setUpHome(): void {
   });
   const form = document.querySelector<HTMLFormElement>("#create");
   const name = form?.querySelector<HTMLInputElement>('input[name="name"]');
-  if (name) name.maxLength = MAX_NAME_LENGTH;
+  if (name) {
+    name.maxLength = MAX_NAME_LENGTH;
+    name.value = rememberedName();
+  }
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = new FormData(form);
@@ -32,6 +36,7 @@ export function setUpHome(): void {
       return;
     }
 
+    rememberName(request.creator.name);
     const submit = form.querySelector("button");
     if (submit) submit.disabled = true;
     void createMatch(request).then((id) => {
