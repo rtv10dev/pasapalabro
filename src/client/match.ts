@@ -28,6 +28,7 @@ import { judgedSound } from "./judged-sound";
 import { mirror, startCamera, stopCamera } from "./mirror";
 import { rememberShowAnswers, showsAnswers } from "./show-answers";
 import { playSound, stopTicks, tickLastSeconds, unlockAudio } from "./sound";
+import { wikcionarioUrl } from "./wikcionario";
 
 type Send = (action: Action) => void;
 
@@ -871,7 +872,10 @@ function over(view: PlayingView, send: Send): Node[] {
   ].filter((node) => node !== null);
 }
 
-/** Every Clue of a Rosco with its answer, coloured by how the Player did. */
+/**
+ * Every Clue of a Rosco with its answer, coloured by how the Player did; each
+ * answer links to its Wikcionario entry.
+ */
 function answers(clues: Results["clues"][PlayerRole]): Node {
   return h(
     "ol",
@@ -886,7 +890,16 @@ function answers(clues: Results["clues"][PlayerRole]): Node {
           {},
           clue.contains ? "Contiene la " : "Empieza por ",
           `${clue.letter}: ${clue.text} `,
-          h("strong", {}, clue.answer),
+          h(
+            "a",
+            {
+              href: wikcionarioUrl(clue.answer),
+              target: "_blank",
+              rel: "noopener",
+              title: `${clue.answer} en Wikcionario`,
+            },
+            h("strong", {}, clue.answer),
+          ),
         ),
       ),
     ),
