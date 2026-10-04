@@ -157,6 +157,12 @@ export function pickClue(
 const OFFENSIVE = /\b(vulgar|malsonante|ofensivo|obsceno|insulto|sexista)\b/iu;
 
 /**
+ * A free-text label that makes a sense offensive only in some contexts, like
+ * "en ciertos contextos se considera vulgar" for sobaco: it doesn't count.
+ */
+const IN_SOME_CONTEXTS = /^en ciertos contextos\b/iu;
+
+/**
  * Labels, or words of a free-text label, for a derogatory sense. Unlike an
  * offensive one, it can be a Clue: most are mild insults the Word List keeps
  * (tonto, zoquete), and the Blocklist holds the slurs.
@@ -203,7 +209,7 @@ function hasFamilyWord(text: string, word: string): boolean {
 
 /** Whether the sense is labelled vulgar or offensive, anywhere. */
 function isOffensive(tags: readonly string[]): boolean {
-  return tags.some((tag) => OFFENSIVE.test(tag));
+  return tags.some((tag) => OFFENSIVE.test(tag) && !IN_SOME_CONTEXTS.test(tag));
 }
 
 /** Whether the sense is labelled for regions of Spain, not for all of it. */

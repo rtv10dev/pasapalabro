@@ -175,13 +175,23 @@ describe("checkSense", () => {
       "se usa como insulto",
       "sexista",
       "de origen ofensivo",
-      "en ciertos contextos se considera vulgar",
     ]) {
       expect(
         checkSense("palabro", sense("Algo feo.", { tags: [tag] })),
         tag,
       ).toBe("vulgar");
     }
+  });
+
+  it("keeps a sense labelled vulgar only in some contexts", () => {
+    expect(
+      checkSense(
+        "sobaco",
+        sense("Concavidad que forma el brazo con el hombro.", {
+          tags: ["en ciertos contextos se considera vulgar"],
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("keeps a sense labelled a nonstandard form", () => {
