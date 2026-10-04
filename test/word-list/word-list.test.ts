@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import * as z from "zod/mini";
+import { parseBlocklist } from "../../scripts/word-list/blocklist";
 import { checkClue } from "../../src/clues/checks";
 import { CONTAINS_LETTERS, LETTERS } from "../../src/shared/rosco";
 import { PREVALENCE, inRange, lettersFor } from "../../src/shared/word-list";
@@ -41,6 +42,18 @@ describe("the committed Word List", () => {
     // "papa" and "papá" are two Words: the draw compares answers normalized.
     const unique = new Set(words.map(({ word }) => word));
     expect(unique.size).toBe(words.length);
+  });
+
+  it("leaves out every Word of the Blocklist", () => {
+    const blocklist = parseBlocklist(
+      readFileSync(
+        new URL("../../data/blocklist.txt", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(blocklist.size).toBeGreaterThan(0);
+    const blocked = words.filter(({ word }) => blocklist.has(word));
+    expect(blocked).toEqual([]);
   });
 
   it("gives every Word a Prevalence between 0 and 100", () => {

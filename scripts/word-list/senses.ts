@@ -152,6 +152,32 @@ export function pickClue(
 }
 
 /**
+ * Labels, or words of a free-text label, for an offensive sense: "vulgar",
+ * "se usa como insulto"… Not "vulgarismo", a nonstandard form. Wider than
+ * VULGAR, which checkSense matches exactly: a Blocklist candidate only asks
+ * for a review, while widening VULGAR would change the Clues of the Words.
+ */
+const OFFENSIVE = /\b(vulgar|malsonante|ofensivo|obsceno|insulto|sexista)\b/iu;
+
+/** Labels, or words of a free-text label, for a derogatory sense. */
+const DEROGATORY = /\b(derogatory|despectivo|derogativo|peyorativo)\b/iu;
+
+/**
+ * Whether the sense is labelled vulgar or offensive, and used in Spain: a
+ * meaning vulgar only elsewhere doesn't make the Word a Blocklist candidate.
+ */
+export function isOffensiveInSpain(sense: Sense): boolean {
+  return (
+    sense.tags.some((tag) => OFFENSIVE.test(tag)) && !isOutsideSpain(sense.tags)
+  );
+}
+
+/** Whether the sense is labelled derogatory (despectivo). */
+export function isDerogatory(sense: Sense): boolean {
+  return sense.tags.some((tag) => DEROGATORY.test(tag));
+}
+
+/**
  * The gloss without what wiktextract leaves of the wiki: sense-number
  * subscripts ("Anublar₁"), editors' notes ("^([cita requerida])"), trailing
  * synonym or usage lines (" :*Sinónimo: miedo"), brackets around a complement

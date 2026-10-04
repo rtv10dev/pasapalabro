@@ -129,6 +129,11 @@ An entry of the Word List: a common noun, adjective or verb in the infinitive th
 _UI_: Palabra
 _Avoid_: Term, lemma, entry
 
+**Blocklist**:
+The Words the maintainer has ruled offensive (slurs and clearly vulgar Words), which the Word List leaves out.
+_UI_: none
+_Avoid_: Banned words, profanity filter, denylist
+
 **Prevalence**:
 The share of people in Spain who know a Word; it decides which Difficulty the Word belongs to.
 _UI_: none

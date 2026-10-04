@@ -1,0 +1,55 @@
+# The Blocklist: Words the Word List leaves out (GLOSSARY.md).
+#
+# Reviewed by hand from the candidates of `npm run candidates:blocklist`
+# (cuss, MIT; LDNOOBW, CC BY 4.0; Wikcionario labels, CC BY-SA 4.0), under
+# this rule: block slurs and clearly vulgar Words (sexual, scatological,
+# ethnic). Mild insults stay (tonto, zoquete), and so does a Word whose Clue
+# is its ordinary meaning (pájaro, huevo), unless the Word is vulgar-leaning
+# in Spain whatever its Clue. Senses vulgar only outside Spain don't count.
+#
+# One Word per line; `#` starts a comment.
+
+# The Clue is a slur.
+buscona  # prostitute, as an insult
+gitano  # an ethnic stereotype
+golfa  # prostitute, as an insult
+judiada  # antisemitic
+loca  # homophobic
+macaco  # Brazilians, racist
+marimacho  # homophobic
+mariquita  # homophobic: the ladybird sense isn't the Clue
+pelandusca  # prostitute, as an insult
+puñal  # homophobic
+ramera  # prostitute, as an insult
+sarasa  # homophobic
+tolete  # a woman who flirts, as an insult
+
+# Vulgar-leaning in Spain, whatever the Clue.
+cabrón
+chocho
+lameculos
+mamador
+ojete
+pajero
+polla
+verga
+
+# Mild ethnic or gendered pejoratives.
+afeminado
+gabacho
+guiri
+pindonga
+yanqui
+
+# Sexual, though clinical.
+esperma
+masturbación
+semen
+violador
+virgo
+
+# Scatological, though childish.
+caca
+culo
+pedo
+pis

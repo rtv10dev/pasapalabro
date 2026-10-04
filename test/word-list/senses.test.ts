@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   checkSense,
+  isDerogatory,
+  isOffensiveInSpain,
   pickClue,
   type Sense,
 } from "../../scripts/word-list/senses";
@@ -282,5 +284,70 @@ describe("pickClue", () => {
       null,
     );
     expect(pickClue("graduar", [])).toBeNull();
+  });
+});
+
+describe("isOffensiveInSpain", () => {
+  it("finds a sense labelled vulgar or offensive", () => {
+    for (const tag of [
+      "vulgar",
+      "malsonante",
+      "ofensivo",
+      "obsceno",
+      "se usa como insulto",
+      "de origen ofensivo",
+      "sexista",
+    ]) {
+      expect(isOffensiveInSpain(sense("Pene.", { tags: [tag] })), tag).toBe(
+        true,
+      );
+    }
+  });
+
+  it("finds one used in Spain or a region of it, wherever else it is used", () => {
+    expect(
+      isOffensiveInSpain(
+        sense("Pene.", { tags: ["Spain", "Mexico", "vulgar"] }),
+      ),
+    ).toBe(true);
+    expect(
+      isOffensiveInSpain(sense("Pene.", { tags: ["Andalusia", "vulgar"] })),
+    ).toBe(true);
+  });
+
+  it("passes a sense vulgar only outside Spain", () => {
+    expect(
+      isOffensiveInSpain(
+        sense("Realizar el acto sexual.", { tags: ["Argentina", "vulgar"] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("passes a nonstandard form, a derogatory sense and an ordinary one", () => {
+    for (const tags of [["vulgarismo"], ["derogatory"], []]) {
+      expect(isOffensiveInSpain(sense("Bajar.", { tags })), tags[0]).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe("isDerogatory", () => {
+  it("finds a sense labelled derogatory", () => {
+    for (const tag of [
+      "derogatory",
+      "con frecuencia despectivo",
+      "coloquial, peyorativo",
+      "derogativo",
+    ]) {
+      expect(
+        isDerogatory(sense("Hombre homosexual.", { tags: [tag] })),
+        tag,
+      ).toBe(true);
+    }
+  });
+
+  it("passes an ordinary or merely colloquial sense", () => {
+    expect(isDerogatory(sense("Perro.", { tags: ["colloquial"] }))).toBe(false);
   });
 });
