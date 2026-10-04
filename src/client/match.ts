@@ -624,20 +624,23 @@ function clueCard(clue: NonNullable<PlayingView["clue"]>): {
 }
 
 /**
- * The waiting Player's screen: Espera tu turno and, in a Hosted Match, the
- * button to follow the other Player's Rosco, with their Clock and the Clue,
- * its answers shown only with Mostrar respuestas. Both screens are built
- * and switched in place, so the Clock keeps counting from this view.
+ * The waiting Player's screen: Espera tu turno, or ¡Se acabó el tiempo! once
+ * their Clock has run out, until the other Player finishes; and, in a Hosted
+ * Match, the button to follow the other Player's Rosco, with their Clock and
+ * the Clue, its answers shown only with Mostrar respuestas. Both screens are
+ * built and switched in place, so the Clock keeps counting from this view.
  */
 function waitingScreen(
   view: PlayingView,
   playerName: string,
   matchId: MatchId,
 ): Node[] {
+  const yours = PLAYER_ROLES.find((role) => view.roles[role] === view.you);
+  const timeUp = yours !== undefined && view.roscos[yours].clockMs <= 0;
   const waiting = h(
     "section",
     { className: "stack" },
-    h("h1", {}, "Espera tu turno"),
+    h("h1", {}, timeUp ? "¡Se acabó el tiempo!" : "Espera tu turno"),
     h("p", { className: "muted" }, `Ahora juega ${playerName}.`),
   );
   if (!view.settings.hosted) return [waiting];
