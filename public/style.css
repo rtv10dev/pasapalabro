@@ -198,22 +198,15 @@ button:disabled {
 }
 
 /* A Rosco's letters in a circle. */
-.loading-rosco,
 .rosco {
-  --size: min(70vw, 15rem);
-  --letter: 1.6rem;
+  --size: min(84vw, 20rem);
+  --letter: 2rem;
   position: relative;
   width: var(--size);
   height: var(--size);
   align-self: center;
 }
 
-.rosco {
-  --size: min(84vw, 20rem);
-  --letter: 2rem;
-}
-
-.loading-rosco span,
 .rosco span {
   position: absolute;
   top: 50%;
@@ -224,23 +217,13 @@ button:disabled {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   font-weight: 700;
   background: var(--line);
   color: var(--fg);
   transform: rotate(calc(360deg * var(--i) / var(--n)))
     translateY(calc((var(--size) - var(--letter)) / -2))
     rotate(calc(-360deg * var(--i) / var(--n)));
-}
-
-/* Each letter lighting up in turn, while the Roscos are generated. */
-.loading-rosco span {
-  animation: light-up 2.5s linear infinite;
-  animation-delay: calc(2.5s * var(--i) / var(--n));
-}
-
-.rosco span {
-  font-size: 0.95rem;
 }
 
 .rosco .hit {
@@ -368,25 +351,6 @@ button.pasapalabra {
 
 .count .miss {
   color: var(--miss);
-}
-
-@keyframes light-up {
-  0%,
-  12% {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  30%,
-  100% {
-    background: var(--line);
-    color: var(--fg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .loading-rosco span {
-    animation-duration: 10s;
-  }
 }
 
 /* The Mirror: the playing Player full screen on the front camera. */

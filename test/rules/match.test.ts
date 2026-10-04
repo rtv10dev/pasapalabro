@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   act,
-  addRosco,
   devicesChanged,
-  missingRoscos,
   newMatch,
   nextChange,
   rematch,
@@ -12,6 +10,7 @@ import {
   viewFor,
   type Context,
   type MatchAction,
+  type MatchRoscos,
   type MatchState,
 } from "../../src/rules/match";
 import {
@@ -57,24 +56,23 @@ const OTHER_ROSCO: Rosco = ROSCO.map((clue) => ({
 }));
 
 /** Both Roscos with two other answers for every Clue. */
-const WITH_OTHERS: Rosco[] = [ROSCO, OTHER_ROSCO].map((rosco) =>
-  rosco.map((clue) => ({
+const WITH_OTHERS: MatchRoscos = [withOthers(ROSCO), withOthers(OTHER_ROSCO)];
+
+function withOthers(rosco: Rosco): Rosco {
+  return rosco.map((clue) => ({
     ...clue,
     otherAnswers: [`${clue.letter}alternativa`, `${clue.letter}sinónimo`],
-  })),
-);
+  }));
+}
 
-/** A Match created with the given Roscos: both, unless a test says otherwise. */
+/** A Match created with the given Roscos. */
 function created(
   settings: Settings = UNHOSTED,
-  roscos: Rosco[] = [ROSCO, OTHER_ROSCO],
+  roscos: MatchRoscos = [ROSCO, OTHER_ROSCO],
 ): MatchState {
-  const result = newMatch(settings, { name: "Ana", device: ANA });
+  const result = newMatch(settings, { name: "Ana", device: ANA }, roscos);
   if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
-  return roscos.reduce(
-    (state, rosco) => addRosco(state, rosco, NOW),
-    result.state,
-  );
+  return result.state;
 }
 
 /** Applies an Action that must be accepted. */
@@ -115,7 +113,7 @@ function idOf(state: MatchState, device: DeviceKey): number {
 /** A Match whose Lobby Ana (the Creator), Bea and Carlos have joined. */
 function lobbyOfThree(
   settings: Settings = UNHOSTED,
-  roscos?: Rosco[],
+  roscos?: MatchRoscos,
 ): MatchState {
   const withBea = accepted(created(settings, roscos), BEA, {
     type: "join",
@@ -245,7 +243,10 @@ describe("a Member's name", () => {
   });
 
   it("can't be blank for the Creator either", () => {
-    const result = newMatch(UNHOSTED, { name: "", device: ANA });
+    const result = newMatch(UNHOSTED, { name: "", device: ANA }, [
+      ROSCO,
+      OTHER_ROSCO,
+    ]);
 
     expect(result).toEqual({ ok: false, reason: "invalid-name" });
   });
@@ -408,70 +409,20 @@ describe("Empezar", () => {
 });
 
 describe("the Roscos", () => {
-  /** Ana and Bea as Players, in a Match the Stock had no Roscos for. */
-  function waitingForRoscos(): MatchState {
-    const state = accepted(created(UNHOSTED, []), BEA, {
-      type: "join",
-      name: "Bea",
-    });
-    return withRoles(state, { player1: ANA, player2: BEA });
-  }
-
-  it("don't hold Empezar back while they are being generated", () => {
-    const state = waitingForRoscos();
-
-    expect(canStart(state)).toBe(true);
-  });
-
-  it("hold the countdown back until they are generated, even with both Players ready", () => {
-    const started = accepted(waitingForRoscos(), ANA, { type: "start" });
+  it("are there from the start: the countdown begins once both Players are ready", () => {
+    const lobby = withRoles(
+      accepted(created(), BEA, { type: "join", name: "Bea" }),
+      { player1: ANA, player2: BEA },
+    );
+    const started = accepted(lobby, ANA, { type: "start" });
     const bothReady = accepted(accepted(started, ANA, { type: "ready" }), BEA, {
       type: "ready",
     });
+
     expect(viewFor(bothReady, BEA, CONTEXT)).toMatchObject({
-      roscosReady: false,
-      countdownMs: null,
+      phase: "started",
+      countdownMs: 5000,
     });
-
-    const one = addRosco(bothReady, ROSCO, NOW + 1000);
-    expect(viewFor(one, BEA, CONTEXT)).toMatchObject({ countdownMs: null });
-    const both = addRosco(one, OTHER_ROSCO, NOW + 7000);
-
-    expect(viewFor(both, BEA, { ...CONTEXT, now: NOW + 8000 })).toMatchObject({
-      roscosReady: true,
-      countdownMs: 4000,
-    });
-  });
-
-  it("never share an answer: one that does is refused and still missing", () => {
-    const one = addRosco(created(UNHOSTED, []), ROSCO, NOW);
-    // The same answer for one letter, in another case and with accents.
-    const clashing = OTHER_ROSCO.map((clue) =>
-      clue.letter === "M" ? { ...clue, answer: "MRÉSPUESTA" } : clue,
-    );
-
-    const refused = addRosco(one, clashing, NOW);
-
-    expect(refused).toBe(one);
-    expect(missingRoscos(refused)).toBe(1);
-    expect(missingRoscos(addRosco(refused, OTHER_ROSCO, NOW))).toBe(0);
-  });
-
-  it("tell Ñ apart from N when comparing answers", () => {
-    const withN = ROSCO.map((clue) =>
-      clue.letter === "N" ? { ...clue, answer: "pena" } : clue,
-    );
-    const withÑ = OTHER_ROSCO.map((clue) =>
-      clue.letter === "Ñ" ? { ...clue, answer: "peña" } : clue,
-    );
-
-    const both = addRosco(
-      addRosco(created(UNHOSTED, []), withN, NOW),
-      withÑ,
-      NOW,
-    );
-
-    expect(missingRoscos(both)).toBe(0);
   });
 
   it("never reach the Devices before the Match starts", () => {
@@ -716,7 +667,10 @@ function at(now: number): Context {
  * A Match past its countdown, with Ana as Player 1 (playing first), Bea as
  * Player 2 and, if Hosted, Carlos as Host.
  */
-function playing(settings: Settings = UNHOSTED, roscos?: Rosco[]): MatchState {
+function playing(
+  settings: Settings = UNHOSTED,
+  roscos?: MatchRoscos,
+): MatchState {
   const roles = settings.hosted
     ? { host: CARLOS, player1: ANA, player2: BEA }
     : { player1: ANA, player2: BEA };
@@ -768,7 +722,7 @@ describe("the first Turn", () => {
 /** The first Turn of `playing()`, begun by its Host (Bea) at PLAY_STARTS. */
 function turnBegun(
   settings: Settings = UNHOSTED,
-  roscos?: Rosco[],
+  roscos?: MatchRoscos,
 ): MatchState {
   const host = settings.hosted ? CARLOS : BEA;
   return accepted(
@@ -1451,7 +1405,7 @@ describe("the next change time alone makes", () => {
 function playedOut(
   turns: Verdict[][],
   settings: Settings = UNHOSTED,
-  roscos?: Rosco[],
+  roscos?: MatchRoscos,
 ): { state: MatchState; now: number } {
   let state = tick(playing(settings, roscos), PLAY_STARTS);
   let now = PLAY_STARTS;
@@ -1567,6 +1521,9 @@ function over(settings: Settings = UNHOSTED): {
   return playedOut([["hit", "miss"], ["hit", "miss"], [], []], settings);
 }
 
+/** The Roscos `rematched()` gives the Rematch: the Match's, swapped. */
+const REMATCH_ROSCOS: MatchRoscos = [OTHER_ROSCO, ROSCO];
+
 /** Has the Creator press Revancha once `over()` has ended; must be accepted. */
 function rematched(settings: Settings = UNHOSTED): {
   before: MatchState;
@@ -1574,7 +1531,7 @@ function rematched(settings: Settings = UNHOSTED): {
   rematchState: MatchState;
 } {
   const { state: before, now } = over(settings);
-  const result = rematch(before, ANA, "next", now);
+  const result = rematch(before, ANA, "next", REMATCH_ROSCOS, now);
   if (!result.ok) throw new Error(`Rejected: ${result.reason}`);
   return { before, ...result };
 }
@@ -1604,28 +1561,29 @@ describe("Revancha", () => {
       you: previous.you,
       firstPlayer: "player2",
       ready: { player1: false, player2: false },
-      roscosReady: false,
       countdownMs: null,
     });
   });
 
-  it("gives the new Match two new Roscos to play, and nothing of the old one's play", () => {
+  it("gives the new Match the Roscos it is given, and nothing of the old one's play", () => {
     const { rematchState: next } = rematched();
-    expect(missingRoscos(next)).toBe(2);
 
-    const withRoscos = addRosco(addRosco(next, ROSCO, NOW), OTHER_ROSCO, NOW);
-    const ready = accepted(accepted(withRoscos, ANA, { type: "ready" }), BEA, {
+    const ready = accepted(accepted(next, ANA, { type: "ready" }), BEA, {
       type: "ready",
     });
     const view = playingView(ready, ANA, PLAY_STARTS);
-    expect(view).toMatchObject({ turn: "player2", stage: "waiting" });
+    expect(view).toMatchObject({
+      turn: "player2",
+      stage: "waiting",
+      clue: { letter: "A", answer: REMATCH_ROSCOS[1][0]?.answer },
+    });
     expect(resultsOf(view, "player1")).toBe(".........................");
     expect(view.roscos.player2.clockMs).toBe(180_000);
   });
 
   it("is only for the Creator", () => {
     const { state, now } = over();
-    expect(rematch(state, BEA, "next", now)).toEqual({
+    expect(rematch(state, BEA, "next", REMATCH_ROSCOS, now)).toEqual({
       ok: false,
       reason: "not-creator",
     });
@@ -1633,7 +1591,7 @@ describe("Revancha", () => {
 
   it("waits for the Match to be over", () => {
     const { state, now } = playedOut([["hit", "miss"]]);
-    expect(rematch(state, ANA, "next", now)).toEqual({
+    expect(rematch(state, ANA, "next", REMATCH_ROSCOS, now)).toEqual({
       ok: false,
       reason: "match-not-over",
     });
@@ -1641,7 +1599,7 @@ describe("Revancha", () => {
 
   it("happens once", () => {
     const { state } = rematched();
-    expect(rematch(state, ANA, "another", NOW)).toEqual({
+    expect(rematch(state, ANA, "another", REMATCH_ROSCOS, NOW)).toEqual({
       ok: false,
       reason: "already-rematched",
     });
@@ -1815,7 +1773,7 @@ describe("an Abandoned Match", () => {
     expect(
       rejection(state, BEA, { type: "judge", verdict: "hit" }, at(ABANDONED)),
     ).toBe("match-abandoned");
-    expect(rematch(state, ANA, "next", ABANDONED)).toEqual({
+    expect(rematch(state, ANA, "next", REMATCH_ROSCOS, ABANDONED)).toEqual({
       ok: false,
       reason: "match-not-over",
     });

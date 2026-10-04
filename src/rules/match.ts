@@ -20,7 +20,7 @@ import {
   type TurnStage,
   type Verdict,
 } from "../shared/protocol";
-import { shareAnswer, type Rosco } from "../shared/rosco";
+import type { Rosco } from "../shared/rosco";
 
 interface Member {
   id: MemberId;
@@ -35,11 +35,8 @@ export interface MatchState {
   members: Member[];
   creator: MemberId;
   roles: Roles;
-  /**
-   * The Match's two Roscos, the first one Player 1's. Fewer while the ones
-   * the Stock couldn't give are being generated. Secret until the Match starts.
-   */
-  roscos: Rosco[];
+  /** The Match's two Roscos, the first one Player 1's. Secret until the Match starts. */
+  roscos: MatchRoscos;
   /** Ids are never reused, so a removed Member's id can't point at someone else. */
   nextMemberId: MemberId;
   /** Set when the Creator presses Empezar; null while in the Lobby. */
@@ -47,7 +44,7 @@ export interface MatchState {
     firstPlayer: PlayerRole;
     /** Which Players have pressed ¡Listo! since Empezar. */
     ready: Record<PlayerRole, boolean>;
-    /** In epoch milliseconds; null until both Players and both Roscos are ready. */
+    /** In epoch milliseconds; null until both Players are ready. */
     countdownEndsAt: number | null;
     /** The Turns, from the end of the countdown on; null until then. */
     play: Play | null;
@@ -124,9 +121,6 @@ export interface Context {
   connected: ReadonlySet<DeviceKey>;
 }
 
-/** How many Roscos a Match plays: one per Player. */
-const ROSCOS_PER_MATCH = 2;
-
 /** How long the countdown before the first Turn lasts. */
 const COUNTDOWN_MS = 5000;
 
@@ -148,10 +142,17 @@ const SILENCE_MS = 10_000;
 const graphemes = new Intl.Segmenter("es", { granularity: "grapheme" });
 
 /**
- * Creates a Match in its Lobby, with the Creator as its first Member and no
- * Roscos yet: they arrive through addRosco.
+ * A Match's two Roscos, one per Player, the first one Player 1's. They never
+ * share an answer, so hearing the other Player's Clues never gives one away.
  */
-export function newMatch(settings: Settings, creator: Creator): Result {
+export type MatchRoscos = readonly [Rosco, Rosco];
+
+/** Creates a Match in its Lobby, with the Creator as its first Member. */
+export function newMatch(
+  settings: Settings,
+  creator: Creator,
+  roscos: MatchRoscos,
+): Result {
   const name = memberName(creator.name);
   if (name === null) return { ok: false, reason: "invalid-name" };
   const id: MemberId = 1;
@@ -162,39 +163,13 @@ export function newMatch(settings: Settings, creator: Creator): Result {
       members: [{ id, name, device: creator.device }],
       creator: id,
       roles: { host: null, player1: null, player2: null },
-      roscos: [],
+      roscos,
       nextMemberId: id + 1,
       start: null,
       rematch: null,
       away: [],
     },
   };
-}
-
-/**
- * Gives the Match one of its Roscos, arriving at `now`; ignored once it has
- * both, and refused if it shares an answer with the one it has, so
- * hearing the other Player's Clues never gives an answer away. The last one
- * starts the countdown if Empezar was already pressed.
- */
-export function addRosco(
-  state: MatchState,
-  rosco: Rosco,
-  now: number,
-): MatchState {
-  if (missingRoscos(state) === 0) return state;
-  if (state.roscos.some((each) => shareAnswer(each, rosco))) return state;
-  return withCountdown({ ...state, roscos: [...state.roscos, rosco] }, now);
-}
-
-/** The answers of the Roscos the Match has, which a Rosco it adds can't share. */
-export function answersInMatch({ roscos }: MatchState): string[] {
-  return roscos.flatMap((rosco) => rosco.map(({ answer }) => answer));
-}
-
-/** How many Roscos the Match still needs before its first Turn. */
-export function missingRoscos({ roscos }: MatchState): number {
-  return Math.max(0, ROSCOS_PER_MATCH - roscos.length);
 }
 
 /** Applies an Action sent by the given Device. */
@@ -232,14 +207,14 @@ export function act(
 /**
  * The Creator pressing Revancha at `now`, once the Match is over: the Match
  * points every Device to the Rematch with the given id, which starts with the
- * same settings, Members and roles, and the other Player first. The Rematch
- * keeps nothing of this Match's play, and has no Roscos yet: they arrive
- * through addRosco.
+ * same settings, Members and roles, the other Player first, and the given
+ * Roscos. The Rematch keeps nothing of this Match's play.
  */
 export function rematch(
   stored: MatchState,
   device: DeviceKey,
   id: MatchId,
+  roscos: MatchRoscos,
   now: number,
 ): RematchResult {
   const state = tick(stored, now);
@@ -259,7 +234,7 @@ export function rematch(
       members: state.members,
       creator: state.creator,
       roles: state.roles,
-      roscos: [],
+      roscos,
       nextMemberId: state.nextMemberId,
       start: {
         firstPlayer: otherPlayer(start.firstPlayer),
@@ -380,7 +355,6 @@ export function viewFor(
     phase: "started",
     firstPlayer,
     ready,
-    roscosReady: missingRoscos(state) === 0,
     countdownMs:
       countdownEndsAt === null ? null : Math.max(0, countdownEndsAt - now),
   };
@@ -914,20 +888,19 @@ function ready(state: MatchState, device: DeviceKey, now: number): Result {
 
 /**
  * Starts the countdown to the first Turn at `now`, if Empezar was pressed and
- * both Players and both Roscos have just become ready.
+ * both Players have just become ready.
  */
 function withCountdown(state: MatchState, now: number): MatchState {
   const { start } = state;
   if (!start || start.countdownEndsAt !== null) return state;
   const playersReady = PLAYER_ROLES.every((role) => start.ready[role]);
-  if (!playersReady || missingRoscos(state) > 0) return state;
+  if (!playersReady) return state;
   return { ...state, start: { ...start, countdownEndsAt: now + COUNTDOWN_MS } };
 }
 
 /**
- * Why Empezar can't be pressed yet; null if it can. The Roscos don't have
- * to be ready: the countdown after Empezar waits for them, and for the
- * Players to press ¡Listo!.
+ * Why Empezar can't be pressed yet; null if it can. The countdown after
+ * Empezar waits for the Players to press ¡Listo!.
  */
 function whyNotStart(
   { settings, roles, members }: MatchState,

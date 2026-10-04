@@ -4,5 +4,5 @@
     "lib": ["es2024"],
     "types": []
   },
-  "include": [".", "../fixtures", "../../src/clues", "../../src/shared"]
+  "include": [".", "../../src/clues", "../../src/shared"]
 }

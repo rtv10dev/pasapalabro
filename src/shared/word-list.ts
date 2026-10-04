@@ -41,9 +41,15 @@ export function inRange(
  */
 export function lettersFor(word: string): Letter[] {
   const normalized = normalize(word);
-  return LETTERS.filter((letter) =>
+  return NORMALIZED_LETTERS.filter(({ letter, form }) =>
     CONTAINS_LETTERS.includes(letter)
-      ? normalized.includes(normalize(letter))
-      : normalized.startsWith(normalize(letter)),
-  );
+      ? normalized.includes(form)
+      : normalized.startsWith(form),
+  ).map(({ letter }) => letter);
 }
+
+/** LETTERS normalized, once: indexing the Word List calls lettersFor for every Word. */
+const NORMALIZED_LETTERS = LETTERS.map((letter) => ({
+  letter,
+  form: normalize(letter),
+}));

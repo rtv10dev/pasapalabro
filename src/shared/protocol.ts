@@ -223,12 +223,10 @@ const matchViewSchema = z.discriminatedUnion("phase", [
     firstPlayer: z.enum(PLAYER_ROLES),
     /** Which Players have pressed ¡Listo!. */
     ready: z.object({ player1: z.boolean(), player2: z.boolean() }),
-    /** False while the Match's Roscos are still being generated. */
-    roscosReady: z.boolean(),
     /**
      * Milliseconds left in the countdown before the first Turn, as of sending:
      * a duration, so a Device with a wrong clock still counts down right.
-     * Null until both Players have pressed ¡Listo! and both Roscos are ready.
+     * Null until both Players have pressed ¡Listo!.
      */
     countdownMs: z.nullable(z.number()),
   }),

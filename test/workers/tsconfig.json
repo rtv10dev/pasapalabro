@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2024"],
+    "resolveJsonModule": true,
     "types": [
       "../../worker-configuration.d.ts",
       "@cloudflare/vitest-pool-workers/types"
@@ -9,7 +10,6 @@
   },
   "include": [
     ".",
-    "../fixtures",
     "../../src/worker",
     "../../src/clues",
     "../../src/rules",

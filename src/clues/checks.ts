@@ -5,11 +5,11 @@ import {
   type Letter,
 } from "../shared/rosco";
 
-/** Why a generated Clue can't go into a Rosco. */
+/** Why a Clue can't go into a Rosco. */
 export type ClueProblem =
   "empty-clue" | "not-one-word" | "letter-rule" | "answer-in-clue" | "repeated";
 
-/** A Clue as written, before it knows whether it is one of the very hard ones. */
+/** A Clue before it knows whether it is one of the very hard ones. */
 export type Candidate = Omit<Clue, "veryHard">;
 
 /** Answers this short are only refused in their Clue as whole words: "oso" is fine in "peligroso". */
@@ -17,8 +17,9 @@ const SHORT_ANSWER = 3;
 
 /**
  * Checks the form of a Clue against the answers already accepted for its
- * Rosco; null if it can go in. Can't tell whether the Clue is true: that's
- * down to the model and the Host (ADR 0004).
+ * Rosco; null if it can go in. The Word List's build runs it on every
+ * definition (ADR 0005). Can't tell whether the Clue is true: that's down
+ * to the dictionary and the Host.
  */
 export function checkClue(
   { letter, contains, text, answer }: Candidate,

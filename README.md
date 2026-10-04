@@ -4,20 +4,20 @@ An online, Spanish-language El Rosco for two Players and a Host in one room. See
 
 It runs on Cloudflare Workers: one Durable Object per Match owns its state and the WebSockets of every Device following it (ADR 0002). Devices send actions (join, assign a role, Empezar) and render the full view the Match sends each of them on every change. Reconnecting after a drop arrives with #8.
 
-Roscos are generated ahead of time (ADR 0004): a `Stock` Durable Object keeps a few ready per Difficulty, and a Cron Trigger adds one every 5 minutes to whichever Difficulty is short. A new Match takes two; if the Stock has none, the Match generates its own, and after Empezar every Device shows the letters lighting up until they're ready. The 5 s countdown to the first Turn starts once both Roscos are ready and both Players have pressed ¡Listo!. Gemini writes the Clues, gpt-oss-120b on Workers AI when Gemini fails.
+A Match draws both its Roscos from the Word List when it is created (ADR 0005), the second avoiding the first one's answers, so there is nothing to wait for after Empezar: the 5 s countdown to the first Turn starts once both Players have pressed ¡Listo!. The Word List, `data/word-list.json`, is built by `npm run build:word-list` from open data and bundled with the Worker; each Clue is a Word's Wikcionario definition. The `Stock` Durable Object no longer holds anything; it stays for the Recent Answers.
 
 ## Layout
 
 | Path            | What                                                                               |
 | --------------- | ---------------------------------------------------------------------------------- |
 | `src/rules/`    | The game rules: pure functions from state and action to new state, no Cloudflare   |
-| `src/clues/`    | Clue generation: the checks every Clue must pass, the prompt and the retry loop    |
-| `src/worker/`   | The Worker (HTTP routes, Cron Trigger), the `Match` and `Stock` Durable Objects    |
+| `src/clues/`    | Drawing a Rosco from the Word List, and the checks every Clue must pass            |
+| `src/worker/`   | The Worker (HTTP routes), the `Match` and `Stock` Durable Objects                  |
 | `src/client/`   | The browser code, bundled by esbuild into `public/app.js`                          |
 | `src/shared/`   | The protocol between the two: message schemas (zod) and their types                |
 | `public/`       | Static pages and styles, served by Workers assets                                  |
 | `test/rules/`   | Tests of the rules, in plain Node                                                  |
-| `test/clues/`   | Tests of Clue generation with fake models, in plain Node                           |
+| `test/clues/`   | Tests of the draw, with a tiny Word List, and of the Clue checks, in plain Node    |
 | `test/workers/` | Tests of the shell, inside the Workers runtime (`@cloudflare/vitest-pool-workers`) |
 
 Routes:
@@ -32,14 +32,10 @@ Requires Node 24.
 
 ```sh
 npm install
-echo "GEMINI_API_KEY=<your key>" > .dev.vars   # once; from aistudio.google.com/apikey
-npx wrangler login                              # once; Workers AI always runs on Cloudflare
 npm run dev
 ```
 
 Opens on <http://localhost:8787>. To join from phones on the same Wi-Fi, run `npm run dev -- --ip 0.0.0.0` and create the Match from `http://<your-computer's-LAN-IP>:8787`: the Lobby's link and QR code point at whatever address the Creator used. Wrangler bundles the client before starting and again whenever `src/client/` or `src/shared/` changes.
-
-`.dev.vars` is gitignored. Locally the Cron Trigger doesn't run on its own, so the Stock starts empty and each new Match generates its Roscos; `npm run dev -- --test-scheduled` lets you fill it by opening `/__scheduled`.
 
 ## Test and check
 
@@ -55,8 +51,7 @@ All four must pass before every commit. After changing `wrangler.jsonc`, run `np
 ## Deploy
 
 ```sh
-npx wrangler login                      # once
-npx wrangler secret put GEMINI_API_KEY  # once
+npx wrangler login  # once
 npm run deploy
 ```
 

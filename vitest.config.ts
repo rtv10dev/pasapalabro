@@ -6,7 +6,7 @@ export default defineConfig({
     projects: [
       // The game rules are pure, so they run in plain Node (CODING_STANDARDS.md).
       { test: { name: "rules", include: ["test/rules/**/*.test.ts"] } },
-      // Clue generation gets its providers passed in, so it runs in Node too.
+      // Drawing Roscos from a Word List, and the Clue checks: pure, so Node too.
       { test: { name: "clues", include: ["test/clues/**/*.test.ts"] } },
       // The Word List's definition filter, and checks on the committed file.
       { test: { name: "word-list", include: ["test/word-list/**/*.test.ts"] } },
@@ -14,13 +14,7 @@ export default defineConfig({
       { test: { name: "client", include: ["test/client/**/*.test.ts"] } },
       {
         plugins: [
-          cloudflareTest({
-            wrangler: { configPath: "./wrangler.jsonc" },
-            // Never reach the real Workers AI from a test.
-            remoteBindings: false,
-            // The tests fake Gemini's API, so any key will do.
-            miniflare: { bindings: { GEMINI_API_KEY: "test-key" } },
-          }),
+          cloudflareTest({ wrangler: { configPath: "./wrangler.jsonc" } }),
         ],
         test: { name: "workers", include: ["test/workers/**/*.test.ts"] },
       },

@@ -21,7 +21,6 @@ import {
   type RoscoView,
   type Settings,
 } from "../shared/protocol";
-import { LETTERS } from "../shared/rosco";
 import { deviceKeyFor, rememberDeviceKey } from "./device-key";
 import { h, showStatus } from "./dom";
 import { judgedSound } from "./judged-sound";
@@ -296,27 +295,6 @@ function lobby(view: MatchView & { phase: "lobby" }, send: Send): Node[] {
   ].filter((node) => node !== false);
 }
 
-/** The Rosco's letters lighting up in order, after Empezar while the Roscos are generated. */
-function loadingRoscos(): Node {
-  const ring = h(
-    "div",
-    { className: "loading-rosco" },
-    ...LETTERS.map((letter, index) => {
-      const span = h("span", {}, letter);
-      span.style.setProperty("--i", String(index));
-      return span;
-    }),
-  );
-  ring.style.setProperty("--n", String(LETTERS.length));
-  ring.setAttribute("aria-hidden", "true");
-  return h(
-    "section",
-    { className: "stack" },
-    ring,
-    h("p", { className: "muted" }, "Preparando los roscos…"),
-  );
-}
-
 function share(): Node {
   const link = `${location.origin}${location.pathname}`;
   const qr = renderSVG(link, { border: 2 });
@@ -433,10 +411,7 @@ function started(view: MatchView & { phase: "started" }, send: Send): Node[] {
   ];
 }
 
-/**
- * Before the countdown: the Rosco loading while it is generated, who has
- * pressed ¡Listo!, and the button for a Player who hasn't.
- */
+/** Before the countdown: who has pressed ¡Listo!, and the button for a Player who hasn't. */
 function readiness(
   view: MatchView & { phase: "started" },
   yourRole: Role | undefined,
@@ -446,7 +421,6 @@ function readiness(
   return h(
     "section",
     { className: "stack" },
-    !view.roscosReady && loadingRoscos(),
     h(
       "ul",
       { className: "members" },

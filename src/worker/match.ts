@@ -1,17 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import * as z from "zod/mini";
-import { generateRosco } from "../clues/generate";
+import { drawRoscos } from "../clues/draw";
 import {
   act,
-  addRosco,
   devicesChanged,
   listening,
-  missingRoscos,
   newMatch,
   nextChange,
   rematch,
   silent,
-  answersInMatch,
   tick,
   viewFor,
   type MatchState,
@@ -29,8 +26,7 @@ import {
   type ServerMessage,
   type Settings,
 } from "../shared/protocol";
-import { generation } from "./providers";
-import { stockOf } from "./stock";
+import { WORDS } from "./word-list";
 
 // WebSocket close codes (RFC 6455, section 7.4.1).
 const NORMAL_CLOSURE = 1000;
@@ -67,9 +63,6 @@ const attachmentSchema = z.object({
 });
 type Attachment = z.infer<typeof attachmentSchema>;
 
-/** How long to wait before generating a Match's Roscos again when every model failed. */
-const GENERATION_RETRY_MS = 60_000;
-
 /**
  * One Match: owns its state and the WebSockets of the Devices following it
  * (ADR 0002). Uses the WebSocket Hibernation API, so the connected Devices
@@ -85,17 +78,17 @@ export class Match extends DurableObject<Env> {
   }
 
   /**
-   * Sets the Match up; the Worker calls it once, right after issuing the id.
-   * Takes its Roscos from the Stock, and generates any the Stock didn't have.
+   * Sets the Match up, with its two Roscos drawn at once; the Worker calls
+   * it once, right after issuing the id.
    */
-  async create(
-    settings: Settings,
-    creator: Creator,
-  ): Promise<Rejection | null> {
-    const result = newMatch(settings, creator);
-    // Only a Match that exists takes Roscos, so a refused one wastes none.
+  create(settings: Settings, creator: Creator): Rejection | null {
+    const result = newMatch(
+      settings,
+      creator,
+      drawRoscos(WORDS, settings.difficulty, Math.random),
+    );
     if (!result.ok) return result.reason;
-    await this.setUp(result.state);
+    this.save(result.state);
     return null;
   }
 
@@ -103,65 +96,17 @@ export class Match extends DurableObject<Env> {
    * Sets the Match up as the Rematch of one that has ended; that Match calls
    * it once, right after issuing the id.
    */
-  async createRematch(state: MatchState): Promise<void> {
-    await this.setUp(state);
-  }
-
-  /** Takes the Match's Roscos from the Stock, and generates any it didn't have. */
-  private async setUp(created: MatchState): Promise<void> {
-    let state = created;
-    const roscos = await stockOf(this.env).take(
-      state.settings.difficulty,
-      missingRoscos(state),
-    );
-    for (const rosco of roscos) state = addRosco(state, rosco, Date.now());
+  createRematch(state: MatchState): void {
     this.save(state);
-    if (missingRoscos(state) > 0) await this.setAlarm(Date.now());
   }
 
   /**
-   * Generates the Roscos the Stock couldn't give while any are missing;
-   * once they are all here, applies the change time has brought: the end of
-   * a countdown or Handover, a Clock reaching zero, or Devices gone silent.
+   * Applies the change time has brought: the end of a countdown or
+   * Handover, a Clock reaching zero, or Devices gone silent.
    */
   override async alarm(): Promise<void> {
     const state = this.load();
-    if (!state) return;
-    if (missingRoscos(state) > 0) await this.generateRoscos(state);
-    else await this.passTime(state);
-  }
-
-  /**
-   * Generates the missing Roscos, both at once so the Players wait for one
-   * generation, not two, each avoiding the answers of a Rosco the Match
-   * already has. Keeps any that succeed. Two generated together may still
-   * share an answer, and then the second is refused: the next alarm, right
-   * away, generates one that avoids the first. When a model failed it tries
-   * again a minute later. The first Turn can't begin until both are here.
-   */
-  private async generateRoscos(before: MatchState): Promise<void> {
-    const avoid = answersInMatch(before);
-    const results = await Promise.allSettled(
-      Array.from({ length: missingRoscos(before) }, () =>
-        generateRosco(before.settings.difficulty, generation(this.env), avoid),
-      ),
-    );
-    // Members may have joined while the Roscos were being generated.
-    let state = this.load() ?? before;
-    let failed = false;
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        state = addRosco(state, result.value, Date.now());
-      } else {
-        failed = true;
-        console.error("Couldn't generate a Rosco", result.reason);
-      }
-    }
-    this.save(state);
-    this.broadcast(state, this.sockets());
-    if (missingRoscos(state) > 0) {
-      await this.setAlarm(Date.now() + (failed ? GENERATION_RETRY_MS : 0));
-    } else await this.setNextAlarm(state, Date.now());
+    if (state) await this.passTime(state);
   }
 
   /**
@@ -245,8 +190,7 @@ export class Match extends DurableObject<Env> {
    * Sets the alarm for the next change time alone makes, or for the next
    * heartbeat check if that comes first. Each stored change resets it, so
    * an alarm left over from before is at worst early, and then changes
-   * nothing. While Roscos are missing there is neither, so the generation's
-   * alarm is left alone.
+   * nothing.
    */
   private async setNextAlarm(state: MatchState, now: number): Promise<void> {
     const times = [nextChange(state), this.nextCheck(state, now)].filter(
@@ -339,7 +283,13 @@ export class Match extends DurableObject<Env> {
       const state = this.load();
       if (!state) return;
       const id = this.env.MATCH.newUniqueId();
-      const result = rematch(state, device, id.toString(), Date.now());
+      const result = rematch(
+        state,
+        device,
+        id.toString(),
+        drawRoscos(WORDS, state.settings.difficulty, Math.random),
+        Date.now(),
+      );
       if (!result.ok) {
         send(socket, { type: "rejected", reason: result.reason });
         return;

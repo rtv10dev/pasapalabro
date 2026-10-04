@@ -5,7 +5,6 @@ import {
   firstTurn as firstTurnOf,
   isPlaying,
   nextPlaying,
-  ROSCOS,
   UNHOSTED,
   type Device,
 } from "./helpers";
@@ -39,7 +38,9 @@ describe("the Turns of a Match", () => {
     await nextPlaying(host);
 
     host.send({ type: "begin-turn" });
+    const atA = await nextPlaying(host, (view) => view.stage === "running");
     host.send({ type: "judge", verdict: "hit" });
+    const atB = await nextPlaying(host, (view) => view.clue?.letter === "B");
     host.send({ type: "judge", verdict: "miss" });
 
     const handover = await nextPlaying(
@@ -48,7 +49,7 @@ describe("the Turns of a Match", () => {
     );
     expect(handover.revealed).toEqual({
       letter: "B",
-      answer: ROSCOS[first][1]?.answer,
+      answer: atB.clue?.answer,
     });
     expect(handover.roscos[first].letters.slice(0, 3)).toEqual([
       { letter: "A", result: "hit" },
@@ -62,10 +63,9 @@ describe("the Turns of a Match", () => {
     const next = await nextPlaying(player, (view) => view.stage === "waiting");
     expect(next.turn).not.toBe(first);
     expect(next.turnHost).toBe(next.you);
-    expect(next.clue).toMatchObject({
-      letter: "A",
-      answer: ROSCOS[next.turn][0]?.answer,
-    });
+    // The other Player's Rosco: the two never share an answer.
+    expect(next.clue?.letter).toBe("A");
+    expect(next.clue?.answer).not.toBe(atA.clue?.answer);
   });
 
   it("end when the running Clock's alarm runs", async () => {
@@ -92,6 +92,10 @@ describe("the Turns of a Match", () => {
 
     // The first Player, now finished, hosts the one left.
     player.send({ type: "begin-turn" });
+    const begun = await nextPlaying(
+      player,
+      (view) => view.stage === "running" && view.turn !== first,
+    );
     player.send({ type: "judge", verdict: "miss" });
     const handover = await nextPlaying(
       host,
@@ -101,7 +105,7 @@ describe("the Turns of a Match", () => {
     expect(left).not.toBe(first);
     expect(handover.revealed).toEqual({
       letter: "A",
-      answer: ROSCOS[left][0]?.answer,
+      answer: begun.clue?.answer,
     });
 
     expect(await fireAlarm(id)).toBe(true);

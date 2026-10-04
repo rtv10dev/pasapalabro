@@ -4,13 +4,14 @@ import type {
   PlayingView,
   Verdict,
 } from "../../src/shared/protocol";
+import { LETTERS, normalize } from "../../src/shared/rosco";
+import { WORDS } from "../../src/worker/word-list";
 import {
   connectDevice,
   fireAlarm,
   firstTurn,
   nextPlaying,
   nextStateWhere,
-  stockUp,
   type Device,
 } from "./helpers";
 
@@ -117,9 +118,29 @@ describe("the end of a Match", () => {
     expect(views.player1.results).toMatchObject({ winner: null });
     expect(views.player1.results?.clues.player1[0]).toMatchObject({
       letter: "A",
-      answer: "abeja",
       result: "hit",
     });
+  });
+});
+
+describe("the Roscos of a Match", () => {
+  it("are drawn from the Word List when it is created, and share no answer", async () => {
+    // Both Players' Clocks run out: the Results show both Roscos.
+    const { views } = await playedOut([[], []]);
+
+    const results = views.player1.results;
+    if (!results) throw new Error("No Results");
+    const { player1, player2 } = results.clues;
+    const words = new Map(WORDS.map(({ word, clue }) => [word, clue]));
+    for (const rosco of [player1, player2]) {
+      expect(rosco.map(({ letter }) => letter)).toEqual(LETTERS);
+      for (const { answer, text } of rosco) {
+        expect(words.get(answer)).toBe(text);
+      }
+    }
+    const first = new Set(player1.map(({ answer }) => normalize(answer)));
+    const shared = player2.filter(({ answer }) => first.has(normalize(answer)));
+    expect(shared).toEqual([]);
   });
 });
 
@@ -127,7 +148,6 @@ describe("the end of a Match", () => {
 async function pressRevancha(
   players: Record<PlayerRole, Device>,
 ): Promise<string> {
-  await stockUp();
   players.player1.send({ type: "rematch" });
   const { rematch } = await nextPlaying(
     players.player1,
@@ -152,7 +172,6 @@ describe("Revancha", () => {
         phase: "started",
         you: views[role].you,
         firstPlayer: otherPlayer(first),
-        roscosReady: true,
       });
     }
   });
