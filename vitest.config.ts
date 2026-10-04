@@ -8,6 +8,8 @@ export default defineConfig({
       { test: { name: "rules", include: ["test/rules/**/*.test.ts"] } },
       // Clue generation gets its providers passed in, so it runs in Node too.
       { test: { name: "clues", include: ["test/clues/**/*.test.ts"] } },
+      // The Word List's definition filter, and checks on the committed file.
+      { test: { name: "word-list", include: ["test/word-list/**/*.test.ts"] } },
       // The client's pure helpers, like the Mirror's geometry.
       { test: { name: "client", include: ["test/client/**/*.test.ts"] } },
       {

@@ -4,3 +4,4 @@ node_modules/
 public/app.js
 prototype-engines/
 public/chunks/
+.word-list/

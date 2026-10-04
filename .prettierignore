@@ -2,3 +2,4 @@ public/app.js
 worker-configuration.d.ts
 package-lock.json
 public/chunks/
+data/word-list.json

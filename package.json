@@ -7,13 +7,15 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
-    "typecheck": "tsc -p src/shared && tsc -p src/rules && tsc -p src/clues && tsc -p src/worker && tsc -p src/client && tsc -p test/rules && tsc -p test/client && tsc -p test/fixtures && tsc -p test/clues && tsc -p test/workers",
+    "typecheck": "tsc -p src/shared && tsc -p src/rules && tsc -p src/clues && tsc -p src/worker && tsc -p src/client && tsc -p test/rules && tsc -p test/client && tsc -p test/fixtures && tsc -p test/clues && tsc -p test/workers && tsc -p scripts/word-list && tsc -p test/word-list",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "build:word-list": "esbuild scripts/word-list/build.ts --bundle --platform=node --format=esm --packages=external --outfile=.word-list/build.mjs && node .word-list/build.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.11.0",
     "prettier": "^3.9.9",

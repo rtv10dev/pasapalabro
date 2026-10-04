@@ -7,6 +7,7 @@ export default defineConfig(
     ignores: [
       "node_modules/",
       ".wrangler/",
+      ".word-list/",
       "public/app.js",
       "public/chunks/",
       "worker-configuration.d.ts",

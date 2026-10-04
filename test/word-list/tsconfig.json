@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": ["node"]
+  },
+  "include": [
+    ".",
+    "../../scripts/word-list",
+    "../../src/shared",
+    "../../src/clues/checks.ts"
+  ]
+}
