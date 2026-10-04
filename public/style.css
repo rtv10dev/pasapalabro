@@ -371,6 +371,11 @@ button.pasapalabra {
   transform: scaleX(-1);
 }
 
+/* Between Turns: kept in the page, with its camera, but not seen. */
+.mirror.hidden {
+  visibility: hidden;
+}
+
 /* No camera or no face detection: the Rosco on a plain background. */
 .mirror.plain {
   background: radial-gradient(circle, #1d2a5c, #0a0f24);

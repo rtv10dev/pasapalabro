@@ -14,7 +14,9 @@ import {
  * face detector, which runs here too: no frame is ever sent anywhere.
  *
  * One per page, kept across views, so that the camera isn't reopened (and
- * permission asked again) every time the Match changes.
+ * permission asked again) every time the Match changes. It stays in the
+ * page, only hidden between Turns: a playing <video> taken out and put back
+ * can come back drawn at the wrong size on iPhone.
  */
 
 /** Must match the version in package.json: the detector's WebAssembly comes from its CDN. */
@@ -72,25 +74,33 @@ export function stopCamera(): void {
 }
 
 /**
- * The Mirror screen: `rosco` follows the Player's head on the camera image,
- * with `hud` over it. Replaces any previous Rosco on the screen.
+ * Shows the Mirror: `rosco` follows the Player's head on the camera image,
+ * with `hud` over it. Replaces any previous Rosco on it. The Mirror covers
+ * the page from before <main>, so what comes after it in <main>, like the
+ * Tally, shows over it; the screen gets an empty placeholder.
  */
 export function mirror(rosco: HTMLElement, ...hud: Node[]): Node {
   startCamera();
+  if (!container.isConnected) document.body.prepend(container);
+  container.classList.remove("hidden");
   rosco.classList.add("following");
   overlay.replaceChildren(rosco, ...hud);
-  // Back in the page after a re-render: carry on playing.
   if (video.paused && stream) void video.play().catch(() => undefined);
   window.cancelAnimationFrame(animationFrame);
   let last = performance.now();
   const step = (now: number): void => {
-    if (!container.isConnected || !rosco.isConnected) return;
     place(rosco, now, now - last);
     last = now;
     animationFrame = window.requestAnimationFrame(step);
   };
   animationFrame = window.requestAnimationFrame(step);
-  return container;
+  return document.createComment("Mirror");
+}
+
+/** Hides the Mirror until a screen shows it again; the camera stays open. */
+export function hideMirror(): void {
+  container.classList.add("hidden");
+  window.cancelAnimationFrame(animationFrame);
 }
 
 function setCamera(state: CameraState): void {

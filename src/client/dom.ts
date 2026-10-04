@@ -14,23 +14,6 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-/**
- * Makes `nodes` the children of `parent`, like replaceChildren, but leaves
- * in place those already there: a playing <video> taken out and put back,
- * like the Mirror's, can come back drawn at the wrong size on iPhone.
- */
-export function replaceScreen(parent: Node, nodes: readonly Node[]): void {
-  const kept = new Set(nodes);
-  for (const child of Array.from(parent.childNodes)) {
-    if (!kept.has(child)) child.remove();
-  }
-  let next = parent.firstChild;
-  for (const node of nodes) {
-    if (node === next) next = next.nextSibling;
-    else parent.insertBefore(node, next);
-  }
-}
-
 const status = document.querySelector<HTMLElement>("#status");
 
 export function showStatus(text: string): void {

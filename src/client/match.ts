@@ -22,9 +22,9 @@ import {
   type Settings,
 } from "../shared/protocol";
 import { deviceKeyFor, rememberDeviceKey } from "./device-key";
-import { h, replaceScreen, showStatus } from "./dom";
+import { h, showStatus } from "./dom";
 import { judgedSound } from "./judged-sound";
-import { mirror, startCamera, stopCamera } from "./mirror";
+import { hideMirror, mirror, startCamera, stopCamera } from "./mirror";
 import { rememberName, rememberedName } from "./remembered-name";
 import { rememberShowAnswers, showsAnswers } from "./show-answers";
 import { playSound, stopTicks, tickLastSeconds, unlockAudio } from "./sound";
@@ -204,7 +204,9 @@ function moveTo(rematch: MatchId, device: DeviceKey): void {
 function render(view: MatchView, send: Send, matchId: MatchId): void {
   for (const interval of intervals) window.clearInterval(interval);
   intervals = [];
-  if (root) replaceScreen(root, screen(view, send, matchId));
+  // Shown again by the new screen if it is the Mirror.
+  hideMirror();
+  root?.replaceChildren(...screen(view, send, matchId));
 }
 
 /** Whether this Device is the playing Player's, with their Clock running. */
