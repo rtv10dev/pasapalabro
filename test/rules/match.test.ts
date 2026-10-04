@@ -1927,30 +1927,32 @@ function tallyShown(): MatchState {
 }
 
 describe("the Tally", () => {
-  it("shows on every Device for 5 s", () => {
+  const hide = { type: "hide-tally" } as const;
+
+  it("shows on every Device until the Host closes it", () => {
     const state = tallyShown();
 
     for (const device of [ANA, BEA, CARLOS]) {
-      expect(playingView(state, device, SHOWN + 2000).tallyMs).toBe(3000);
+      expect(playingView(state, device, SHOWN + 60_000).tallyShown).toBe(true);
     }
-    expect(playingView(state, ANA, SHOWN + 2000).stage).toBe("waiting");
+    expect(playingView(state, ANA, SHOWN).stage).toBe("waiting");
+    expect(nextChange(state)).toBeNull();
   });
 
   it("isn't shown until the Host shows it", () => {
-    expect(playingView(playing(HOSTED), ANA, SHOWN).tallyMs).toBeNull();
-    expect(playingView(playing(), ANA, SHOWN).tallyMs).toBeNull();
+    expect(playingView(playing(HOSTED), ANA, SHOWN).tallyShown).toBe(false);
+    expect(playingView(playing(), ANA, SHOWN).tallyShown).toBe(false);
   });
 
-  it("ends after 5 s, the next change time alone makes", () => {
-    const state = tallyShown();
-    expect(nextChange(state)).toBe(SHOWN + 5000);
+  it("closes on every Device when the Host closes it", () => {
+    const closed = accepted(tallyShown(), CARLOS, hide, at(SHOWN + 3000));
 
-    const ended = tick(state, SHOWN + 5000);
-    expect(playingView(ended, ANA, SHOWN + 5000).tallyMs).toBeNull();
-    expect(nextChange(ended)).toBeNull();
+    for (const device of [ANA, BEA, CARLOS]) {
+      expect(playingView(closed, device, SHOWN + 3000).tallyShown).toBe(false);
+    }
   });
 
-  it("starts its 5 s again when shown again", () => {
+  it("stays shown when shown again", () => {
     const again = accepted(
       tallyShown(),
       CARLOS,
@@ -1958,17 +1960,18 @@ describe("the Tally", () => {
       at(SHOWN + 3000),
     );
 
-    expect(playingView(again, ANA, SHOWN + 3000).tallyMs).toBe(5000);
-    expect(nextChange(again)).toBe(SHOWN + 8000);
+    expect(playingView(again, ANA, SHOWN + 3000).tallyShown).toBe(true);
   });
 
   it("is only for a Hosted Match", () => {
-    expect(
-      rejection(playing(), BEA, { type: "show-tally" }, at(PLAY_STARTS)),
-    ).toBe("not-hosted");
+    for (const action of [{ type: "show-tally" } as const, hide]) {
+      expect(rejection(playing(), BEA, action, at(PLAY_STARTS))).toBe(
+        "not-hosted",
+      );
+    }
   });
 
-  it("is only for the Host", () => {
+  it("is shown and closed only by the Host", () => {
     for (const device of [ANA, BEA]) {
       expect(
         rejection(
@@ -1978,6 +1981,7 @@ describe("the Tally", () => {
           at(PLAY_STARTS),
         ),
       ).toBe("not-host");
+      expect(rejection(tallyShown(), device, hide, at(SHOWN))).toBe("not-host");
     }
   });
 
@@ -2003,10 +2007,14 @@ describe("the Tally", () => {
     expect(rejection(state, CARLOS, show, at(now))).toBe("turn-not-waiting");
   });
 
-  it("isn't shown while the Match is paused or abandoned", () => {
+  it("isn't shown or closed while the Match is paused or abandoned", () => {
     const show = { type: "show-tally" } as const;
     const paused = away(playing(HOSTED), PLAY_STARTS, ANA);
     expect(rejection(paused, CARLOS, show, at(SHOWN))).toBe("match-paused");
+    const pausedShowing = away(tallyShown(), SHOWN + 1000, ANA);
+    expect(rejection(pausedShowing, CARLOS, hide, at(SHOWN + 2000))).toBe(
+      "match-paused",
+    );
 
     const abandoned = tick(paused, PLAY_STARTS + 60_000);
     expect(rejection(abandoned, CARLOS, show, at(PLAY_STARTS + 60_000))).toBe(
@@ -2014,45 +2022,39 @@ describe("the Tally", () => {
     );
   });
 
-  it("holds back Empezar turno while it shows", () => {
+  it("holds back Empezar turno until the Host closes it", () => {
     expect(
-      rejection(tallyShown(), CARLOS, { type: "begin-turn" }, at(SHOWN + 4999)),
+      rejection(
+        tallyShown(),
+        CARLOS,
+        { type: "begin-turn" },
+        at(SHOWN + 60_000),
+      ),
     ).toBe("tally-showing");
 
+    const closed = accepted(tallyShown(), CARLOS, hide, at(SHOWN + 3000));
     const begun = accepted(
-      tallyShown(),
+      closed,
       CARLOS,
       { type: "begin-turn" },
-      at(SHOWN + 5000),
+      at(SHOWN + 4000),
     );
-    expect(playingView(begun, ANA, SHOWN + 5000).stage).toBe("running");
+    expect(playingView(begun, ANA, SHOWN + 4000).stage).toBe("running");
   });
 
-  it("stops during a Pause, and goes on from where it stopped", () => {
+  it("is still shown after a Pause", () => {
     const paused = away(tallyShown(), SHOWN + 2000, ANA);
-    expect(playingView(paused, CARLOS, SHOWN + 20_000).tallyMs).toBe(3000);
-    expect(nextChange(paused)).toBe(SHOWN + 2000 + 60_000);
-
     const back = away(paused, SHOWN + 30_000);
-    expect(playingView(back, CARLOS, SHOWN + 31_000).tallyMs).toBe(2000);
-    expect(nextChange(back)).toBe(SHOWN + 33_000);
+
+    expect(playingView(back, CARLOS, SHOWN + 31_000).tallyShown).toBe(true);
   });
 
   it("isn't shown once the Match is abandoned", () => {
     const paused = away(tallyShown(), SHOWN + 2000, ANA);
 
     const abandoned = tick(paused, SHOWN + 62_000);
-    expect(playingView(abandoned, CARLOS, SHOWN + 62_000).tallyMs).toBeNull();
-  });
-
-  it("stops no earlier than it was shown, for a Device found silent since before", () => {
-    const state = devicesChanged(
-      tallyShown(),
-      connectedBut([ANA]),
-      SHOWN + 3000,
-      new Map([[ANA, PLAY_STARTS]]),
+    expect(playingView(abandoned, CARLOS, SHOWN + 62_000).tallyShown).toBe(
+      false,
     );
-
-    expect(playingView(state, CARLOS, SHOWN + 3000).tallyMs).toBe(5000);
   });
 });

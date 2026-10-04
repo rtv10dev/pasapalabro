@@ -94,6 +94,8 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("judge"), verdict: z.enum(VERDICTS) }),
   /** The Host of a Hosted Match pressing Marcador while a Turn waits. */
   z.object({ type: z.literal("show-tally") }),
+  /** The Host of a Hosted Match closing the Tally they showed. */
+  z.object({ type: z.literal("hide-tally") }),
   /** The Creator pressing Revancha once the Match is over. */
   z.object({ type: z.literal("rematch") }),
 ]);
@@ -246,11 +248,8 @@ const matchViewSchema = z.discriminatedUnion("phase", [
      * outside one.
      */
     handoverFrom: z.nullable(z.enum(PLAYER_ROLES)),
-    /**
-     * Milliseconds left of the Tally on every Device, as of sending; null
-     * while it isn't shown.
-     */
-    tallyMs: z.nullable(z.number()),
+    /** Whether the Tally shows on every Device, until its Host closes it. */
+    tallyShown: z.boolean(),
     roscos: z.object({ player1: roscoViewSchema, player2: roscoViewSchema }),
     /**
      * The current Clue, its answer and the other answers the Host can accept:

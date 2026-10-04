@@ -493,12 +493,10 @@ function ticking(
 /** A Turn being played, as this Device's role in it sees it. */
 function playing(view: PlayingView, send: Send, matchId: MatchId): Node[] {
   const playerName = playerNameOf(view, view.turn);
-  // The Pause screen hides a Tally, which stands still until it ends.
+  // The Pause screen hides a Tally, which comes back with the Turn.
   if (view.pause) return paused(view, view.pause);
   const nodes = turnScreen(view, playerName, send, matchId);
-  return view.tallyMs === null
-    ? nodes
-    : [...nodes, tallyOverlay(view, view.tallyMs)];
+  return view.tallyShown ? [...nodes, tallyOverlay(view, send)] : nodes;
 }
 
 /** What this Device shows of the Turn, by its stage and this Device's role. */
@@ -566,12 +564,7 @@ function hostScreen(view: PlayingView, playerName: string, send: Send): Node[] {
       ? h(
           "div",
           { className: "stack" },
-          button(
-            "Empezar turno",
-            "",
-            { type: "begin-turn" },
-            view.tallyMs !== null,
-          ),
+          button("Empezar turno", "", { type: "begin-turn" }, view.tallyShown),
           view.settings.hosted &&
             button("Marcador", "secondary", { type: "show-tally" }),
         )
@@ -939,11 +932,9 @@ function count(view: RoscoView): Node {
 
 /**
  * The Tally over whatever the Device shows, the Mirror included: each
- * Player's Hits, Misses and Clock, counting down until it ends.
+ * Player's Hits, Misses and Clock, until the Host closes it.
  */
-function tallyOverlay(view: PlayingView, ms: number): Node {
-  const display = h("p", { className: "countdown" });
-  ticking(display, ms, (left) => String(Math.ceil(left / 1000)));
+function tallyOverlay(view: PlayingView, send: Send): Node {
   return h(
     "section",
     { className: "tally stack", role: "dialog", ariaLabel: "Marcador" },
@@ -957,7 +948,18 @@ function tallyOverlay(view: PlayingView, ms: number): Node {
         h("p", {}, count(view.roscos[role])),
       ),
     ),
-    display,
+    view.you === view.turnHost &&
+      h(
+        "button",
+        {
+          type: "button",
+          className: "secondary",
+          onclick: () => {
+            send({ type: "hide-tally" });
+          },
+        },
+        "Cerrar",
+      ),
   );
 }
 

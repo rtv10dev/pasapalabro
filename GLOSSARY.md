@@ -35,7 +35,7 @@ _UI_: Resultados (¡Gana …! / ¡Empate!)
 _Avoid_: Score, scoreboard, leaderboard
 
 **Tally**:
-Each Player's Hits, Misses and Clock so far, which the Host of a Hosted Match can show on every Device for a few seconds before a Turn.
+Each Player's Hits, Misses and Clock so far, which the Host of a Hosted Match can show on every Device before a Turn, until they close it.
 _UI_: Marcador
 _Avoid_: Score, scoreboard
 

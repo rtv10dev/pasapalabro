@@ -42,7 +42,7 @@ function running(you: MemberId): PlayingView {
     stage: "running",
     handoverMs: null,
     handoverFrom: null,
-    tallyMs: null,
+    tallyShown: false,
     roscos: { player1: rosco([], "A"), player2: rosco([], "A") },
     clue: null,
     pause: null,

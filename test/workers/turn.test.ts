@@ -137,8 +137,8 @@ describe("the Turns of a Match", () => {
     }
   });
 
-  it("show the Tally on every Device until its alarm runs, in a Hosted Match", async () => {
-    const { id, players, host } = await firstTurnOf({
+  it("show the Tally on every Device until the Host closes it, in a Hosted Match", async () => {
+    const { players, host } = await firstTurnOf({
       ...UNHOSTED,
       hosted: true,
     });
@@ -149,14 +149,14 @@ describe("the Turns of a Match", () => {
     host.send({ type: "show-tally" });
     for (const device of devices) {
       const view = await nextPlaying(device);
-      expect(view.tallyMs).toBeGreaterThan(0);
+      expect(view.tallyShown).toBe(true);
     }
 
-    expect(await fireAlarm(id)).toBe(true);
+    host.send({ type: "hide-tally" });
 
     for (const device of devices) {
       const view = await nextPlaying(device);
-      expect(view).toMatchObject({ stage: "waiting", tallyMs: null });
+      expect(view).toMatchObject({ stage: "waiting", tallyShown: false });
     }
   });
 });
