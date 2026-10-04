@@ -120,7 +120,7 @@ describe("a Device gone silent", () => {
 
     // The next change is the Clock running out.
     const view = await nextPlaying(host);
-    expect(view).toMatchObject({ stage: "handover", pause: null });
+    expect(view).toMatchObject({ stage: "waiting", pause: null });
   });
 
   it("can come back through the same link and go on with the Turn", async () => {

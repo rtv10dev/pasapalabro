@@ -76,7 +76,11 @@ describe("the Turns of a Match", () => {
 
     expect(await fireAlarm(id)).toBe(true);
 
-    const view = await nextPlaying(host, (each) => each.stage === "handover");
+    // With no answer to reveal, the Turn passes with no Handover.
+    const view = await nextPlaying(
+      host,
+      (each) => each.stage === "waiting" && each.turn !== first,
+    );
     expect(view.roscos[first]).toMatchObject({ clockMs: 0, finished: true });
   });
 
@@ -85,10 +89,12 @@ describe("the Turns of a Match", () => {
     await nextPlaying(host);
     host.send({ type: "begin-turn" });
     await nextPlaying(host, (view) => view.stage === "running");
-    // The first Player's Clock runs out, then the Handover ends.
+    // The first Player's Clock runs out, and the Turn passes.
     expect(await fireAlarm(id)).toBe(true);
-    expect(await fireAlarm(id)).toBe(true);
-    await nextPlaying(player, (view) => view.stage === "waiting");
+    await nextPlaying(
+      player,
+      (view) => view.stage === "waiting" && view.turn !== first,
+    );
 
     // The first Player, now finished, hosts the one left.
     player.send({ type: "begin-turn" });
@@ -117,17 +123,17 @@ describe("the Turns of a Match", () => {
   });
 
   it("never send the playing Player the Clue or its answer before it is revealed", async () => {
-    const { player, host } = await firstTurn();
+    const { player, host, first } = await firstTurn();
     const received: MatchView[] = [];
     await nextPlaying(host);
     host.send({ type: "begin-turn" });
     host.send({ type: "judge", verdict: "hit" });
     host.send({ type: "judge", verdict: "pasapalabra" });
+    // Up to the Pasapalabra, after which they host the other Player's Turn.
     let view = await player.nextState();
-    received.push(view);
-    while (!(isPlaying(view) && view.stage === "handover")) {
-      view = await player.nextState();
+    while (!(isPlaying(view) && view.turn !== first)) {
       received.push(view);
+      view = await player.nextState();
     }
 
     const sent = JSON.stringify(received);

@@ -14,7 +14,7 @@ export type Sound = (typeof SOUNDS)[number];
  * Player whose Turn was just judged; null on every other Device, when nothing
  * was judged, or without a previous view (a first load or a reload), so that
  * nothing replays. A Pasapalabra is the current letter moving on, or the
- * Turn handing over on the only letter left, with no new result.
+ * Turn passing on the only letter left, with no new result.
  */
 export function judgedSound(
   previous: MatchView | null,
@@ -36,6 +36,7 @@ export function judgedSound(
   // A Pasapalabra leaves a letter to play: a Rosco finished by its Clock
   // has none.
   if (after.current === null) return null;
-  const passed = after.current !== before.current || view.stage === "handover";
+  const passed =
+    after.current !== before.current || view.turn !== previous.turn;
   return passed ? "pasapalabra" : null;
 }

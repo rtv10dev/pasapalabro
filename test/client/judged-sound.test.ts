@@ -52,7 +52,12 @@ function running(you: MemberId): PlayingView {
   };
 }
 
-/** The Handover after Player 1's Turn, to Player 2's. */
+/** Player 1's Turn passed on to Player 2's, with no Handover: nothing to reveal. */
+function passedOn(before: PlayingView): PlayingView {
+  return { ...before, turn: "player2", turnHost: HOST, stage: "waiting" };
+}
+
+/** The Handover after Player 1's Turn ends on a Miss, to Player 2's. */
 function handedOver(before: PlayingView): PlayingView {
   return {
     ...before,
@@ -86,7 +91,7 @@ describe("judgedSound", () => {
   it("is a Pasapalabra on the Player's Device when their letter moves on unanswered", () => {
     const before = running(PLAYER1);
     const after: PlayingView = {
-      ...handedOver(before),
+      ...passedOn(before),
       roscos: { ...before.roscos, player1: rosco([], "B") },
     };
     expect(judgedSound(before, after)).toBe("pasapalabra");
@@ -97,7 +102,7 @@ describe("judgedSound", () => {
       ...running(PLAYER1),
       roscos: { player1: rosco(["hit", "miss"], "C"), player2: rosco([], "A") },
     };
-    const after = handedOver(before);
+    const after = passedOn(before);
     expect(judgedSound(before, after)).toBe("pasapalabra");
   });
 
@@ -153,12 +158,18 @@ describe("judgedSound", () => {
   it("is none when the Clock runs out, which finishes the Rosco", () => {
     const before = running(PLAYER1);
     const after: PlayingView = {
-      ...handedOver(before),
+      ...passedOn(before),
       roscos: {
         ...before.roscos,
         player1: { ...rosco([], null), clockMs: 0 },
       },
     };
+    expect(judgedSound(before, after)).toBeNull();
+  });
+
+  it("is none when the Match is abandoned during the Turn", () => {
+    const before = running(PLAYER1);
+    const after: PlayingView = { ...before, stage: "abandoned" };
     expect(judgedSound(before, after)).toBeNull();
   });
 });

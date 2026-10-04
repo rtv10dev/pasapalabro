@@ -121,7 +121,7 @@ export interface Context {
 /** How long the countdown before the first Turn lasts. */
 const COUNTDOWN_MS = 5000;
 
-/** How long a Handover between Turns lasts. */
+/** How long a Handover after a Miss lasts. */
 const HANDOVER_MS = 5000;
 
 /** How long a Pause lasts before the Match is abandoned. */
@@ -702,9 +702,9 @@ function heldBack(play: Play): Rejection | null {
 
 /**
  * Stops the playing Player's Clock at `now` and hands the Turn over to the
- * other Player, unless they have finished: then it stays with this one. If
- * both have finished, the Match is over, after a Handover only if there is
- * a Miss's answer to show.
+ * other Player, unless they have finished: then it stays with this one. A
+ * Handover comes first only if there is a Miss's answer to show; if both
+ * have finished, the Match is then over.
  */
 function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
   const stopped = {
@@ -712,17 +712,15 @@ function endTurn(play: Play, now: number, revealed: Revealed | null): Play {
     clockMs: clockLeft(play, play.turn, now),
   };
   const progress = { ...play.progress, [play.turn]: stopped };
-  const over = isOver(progress);
   const other = otherPlayer(play.turn);
   return {
     ...play,
     turn: isFinished(progress[other]) ? play.turn : other,
     progress,
     runningSince: null,
-    handover:
-      over && !revealed
-        ? null
-        : { endsAt: now + HANDOVER_MS, from: play.turn, revealed },
+    handover: revealed
+      ? { endsAt: now + HANDOVER_MS, from: play.turn, revealed }
+      : null,
   };
 }
 

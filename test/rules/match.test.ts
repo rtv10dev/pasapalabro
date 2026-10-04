@@ -893,23 +893,21 @@ describe("Fallo", () => {
 });
 
 describe("Pasapalabra", () => {
-  it("leaves the letter pending, stops the Clock and passes the Turn, revealing nothing", () => {
+  it("leaves the letter pending, stops the Clock and passes the Turn at once, revealing nothing", () => {
     const state = judged(turnBegun(), BEA, "pasapalabra", JUDGED);
 
-    const view = playingView(state, ANA, JUDGED + 1000);
+    const view = playingView(state, ANA, JUDGED);
     expect(view).toMatchObject({
-      stage: "handover",
+      stage: "waiting",
       turn: "player2",
+      turnHost: idOf(state, ANA),
+      handoverMs: null,
       revealed: null,
     });
     expect(resultsOf(view, "player1")).toBe(".........................");
     expect(view.roscos.player1).toMatchObject({
       current: "B",
       clockMs: 176_000,
-    });
-    expect(playingView(state, ANA, HANDED_OVER)).toMatchObject({
-      stage: "waiting",
-      turn: "player2",
     });
   });
 });
@@ -963,25 +961,20 @@ describe("the letters", () => {
 const CLOCK_OUT = PLAY_STARTS + 180_000;
 
 describe("a Player finishing", () => {
-  it("happens when their Clock reaches zero, and the Turn passes after the Handover", () => {
+  it("happens when their Clock reaches zero, and the Turn passes at once", () => {
     const state = turnBegun();
 
     const atZero = playingView(state, ANA, CLOCK_OUT);
     expect(atZero).toMatchObject({
-      stage: "handover",
+      stage: "waiting",
       turn: "player2",
-      handoverFrom: "player1",
-      handoverMs: 5000,
+      handoverMs: null,
       revealed: null,
     });
     expect(atZero.roscos.player1).toMatchObject({
       clockMs: 0,
       finished: true,
       current: null,
-    });
-    expect(playingView(state, ANA, CLOCK_OUT + 5000)).toMatchObject({
-      stage: "waiting",
-      turn: "player2",
     });
   });
 
@@ -1006,7 +999,7 @@ describe("a Player finishing", () => {
 
     const view = playingView(state, ANA, JUDGED + 25_000);
     expect(view).toMatchObject({
-      stage: "handover",
+      stage: "waiting",
       turn: "player2",
       revealed: null,
     });
@@ -1911,8 +1904,8 @@ describe("a Device going silent", () => {
 
     expect(playingView(state, CARLOS, CLOCK_OUT + 3000)).toMatchObject({
       turn: "player2",
-      stage: "handover",
-      handoverMs: 5000,
+      stage: "waiting",
+      handoverMs: null,
       pause: { missing: [idOf(state, BEA)], abandonMs: 57_000 },
     });
   });
