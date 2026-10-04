@@ -26,6 +26,15 @@ export const PREVALENCE: Record<Difficulty, PrevalenceRange> = {
   hard: { min: 60, max: 85 },
 };
 
+/**
+ * How many Roscos of a Difficulty the Recent Answers remember, so their
+ * answers aren't drawn again. A Match's Rosco avoids these and the Match's
+ * other Rosco, each taking one Word per letter; every letter's band must
+ * hold twice that many, so a draw never runs out. The Word List's data
+ * test checks it, and names the smallest band when it fails.
+ */
+export const RECENT_ROSCOS = 4;
+
 /** Whether a Word with this Prevalence is in the range. */
 export function inRange(
   prevalence: number,

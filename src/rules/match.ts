@@ -148,6 +148,11 @@ const graphemes = new Intl.Segmenter("es", { granularity: "grapheme" });
 export type MatchRoscos = readonly [Rosco, Rosco];
 
 /** Creates a Match in its Lobby, with the Creator as its first Member. */
+/** Why newMatch would refuse this Creator, if it would; tells before its Roscos are drawn. */
+export function newMatchRefusal(creator: Creator): Rejection | null {
+  return memberName(creator.name) === null ? "invalid-name" : null;
+}
+
 export function newMatch(
   settings: Settings,
   creator: Creator,
@@ -210,6 +215,23 @@ export function act(
  * same settings, Members and roles, the other Player first, and the given
  * Roscos. The Rematch keeps nothing of this Match's play.
  */
+/**
+ * Why rematch would refuse this Device's Revancha at `now`, if it would;
+ * tells before the Rematch's Roscos are drawn.
+ */
+export function rematchRefusal(
+  stored: MatchState,
+  device: DeviceKey,
+  now: number,
+): Rejection | null {
+  const state = tick(stored, now);
+  if (memberOf(state, device)?.id !== state.creator) return "not-creator";
+  const play = state.start?.play;
+  if (!play || stageOf(play) !== "over") return "match-not-over";
+  if (state.rematch !== null) return "already-rematched";
+  return null;
+}
+
 export function rematch(
   stored: MatchState,
   device: DeviceKey,
@@ -217,15 +239,11 @@ export function rematch(
   roscos: MatchRoscos,
   now: number,
 ): RematchResult {
+  const refusal = rematchRefusal(stored, device, now);
+  if (refusal !== null) return { ok: false, reason: refusal };
   const state = tick(stored, now);
   const { start } = state;
-  if (memberOf(state, device)?.id !== state.creator) {
-    return { ok: false, reason: "not-creator" };
-  }
-  if (!start?.play || stageOf(start.play) !== "over") {
-    return { ok: false, reason: "match-not-over" };
-  }
-  if (state.rematch !== null) return { ok: false, reason: "already-rematched" };
+  if (!start) return { ok: false, reason: "match-not-over" };
   return {
     ok: true,
     state: { ...state, rematch: id },

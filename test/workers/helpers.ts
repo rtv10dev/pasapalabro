@@ -1,5 +1,6 @@
 import { runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
+import { expect } from "vitest";
 import {
   parseCreatedMatch,
   parseServerMessage,
@@ -7,12 +8,14 @@ import {
   PONG,
   type Action,
   type CreateMatchRequest,
+  type Difficulty,
   type DeviceKey,
   type MatchView,
   type PlayerRole,
   type PlayingView,
   type ServerMessage,
   type Settings,
+  type Verdict,
 } from "../../src/shared/protocol";
 
 const BASE = "https://pasapalabra.test";
@@ -280,5 +283,78 @@ export async function firstTurn(settings: Settings = UNHOSTED): Promise<{
     players: { player1: ana, player2: bea.device },
     host: carlos?.device ?? null,
     first: started.firstPlayer,
+  };
+}
+
+export function otherPlayer(role: PlayerRole): PlayerRole {
+  return role === "player1" ? "player2" : "player1";
+}
+
+/**
+ * Plays a Turn of the given Player: their Host presses Empezar turno and
+ * gives the verdicts; then alarms run the Clock out, if it is still running,
+ * and the Handover. Returns the Host's view once the Turn is over.
+ */
+async function playTurn(
+  id: string,
+  players: Record<PlayerRole, Device>,
+  turn: PlayerRole,
+  verdicts: Verdict[],
+): Promise<PlayingView> {
+  const host = players[otherPlayer(turn)];
+  await nextPlaying(
+    host,
+    (view) => view.stage === "waiting" && view.turn === turn,
+  );
+  // Every accepted action sends each Device one state.
+  host.send({ type: "begin-turn" });
+  let view = await nextPlaying(host);
+  for (const verdict of verdicts) {
+    host.send({ type: "judge", verdict });
+    view = await nextPlaying(host);
+  }
+  while (view.stage === "running" || view.stage === "handover") {
+    expect(await fireAlarm(id)).toBe(true);
+    view = await nextPlaying(host);
+  }
+  return view;
+}
+
+/**
+ * Plays a non-Hosted Match of the Difficulty to its end: one list of verdicts per Turn, the
+ * Players taking turns from the one chance picked. Returns the last view of
+ * each Player's Device.
+ */
+export async function playedOut(
+  turns: Verdict[][],
+  difficulty: Difficulty = UNHOSTED.difficulty,
+): Promise<{
+  id: string;
+  players: Record<PlayerRole, Device>;
+  first: PlayerRole;
+  views: Record<PlayerRole, PlayingView>;
+}> {
+  const { id, players, first } = await firstTurn({ ...UNHOSTED, difficulty });
+  let turn = first;
+  let last: PlayingView | null = null;
+  for (const verdicts of turns) {
+    last = await playTurn(id, players, turn, verdicts);
+    turn = otherPlayer(turn);
+  }
+  if (last?.stage !== "over") throw new Error("The Match isn't over");
+  // `turn` has moved on to the last Turn's Host, whose view of the end is
+  // `last`; the Player who played it waits for theirs.
+  const played = await nextPlaying(
+    players[otherPlayer(turn)],
+    (view) => view.stage === "over",
+  );
+  return {
+    id,
+    players,
+    first,
+    views:
+      turn === "player1"
+        ? { player1: last, player2: played }
+        : { player1: played, player2: last },
   };
 }

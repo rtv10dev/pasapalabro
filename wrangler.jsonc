@@ -15,11 +15,15 @@
   "durable_objects": {
     "bindings": [
       { "name": "MATCH", "class_name": "Match" },
-      { "name": "STOCK", "class_name": "Stock" },
+      { "name": "RECENT_ANSWERS", "class_name": "RecentAnswers" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Match"] },
     { "tag": "v2", "new_sqlite_classes": ["Stock"] },
+    {
+      "tag": "v3",
+      "renamed_classes": [{ "from": "Stock", "to": "RecentAnswers" }],
+    },
   ],
 }

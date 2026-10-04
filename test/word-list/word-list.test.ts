@@ -4,7 +4,12 @@ import * as z from "zod/mini";
 import { parseBlocklist } from "../../scripts/word-list/blocklist";
 import { checkClue } from "../../src/clues/checks";
 import { CONTAINS_LETTERS, LETTERS } from "../../src/shared/rosco";
-import { PREVALENCE, inRange, lettersFor } from "../../src/shared/word-list";
+import {
+  PREVALENCE,
+  RECENT_ROSCOS,
+  inRange,
+  lettersFor,
+} from "../../src/shared/word-list";
 
 const fileSchema = z.object({
   licence: z.string(),
@@ -88,12 +93,19 @@ describe("the committed Word List", () => {
       inRange(prevalence, range),
     );
 
+    // A Match's Roscos avoid the Recent Answers and each other: at most one
+    // Word per letter for each Rosco remembered and each of the Match's two.
+    const needed = RECENT_ROSCOS + 2;
+
     // lettersFor applies "contiene" to Ñ, X and Y, "empieza por" to the rest.
-    it.each(LETTERS)("has Words for %s", (letter) => {
-      const answers = inThisRange.filter(({ word }) =>
-        lettersFor(word).includes(letter),
-      );
-      expect(answers.length).toBeGreaterThan(0);
-    });
+    it.each(LETTERS)(
+      `has at least twice the ${needed} Words for %s that a draw may need`,
+      (letter) => {
+        const answers = inThisRange.filter(({ word }) =>
+          lettersFor(word).includes(letter),
+        );
+        expect(answers.length).toBeGreaterThanOrEqual(2 * needed);
+      },
+    );
   });
 });

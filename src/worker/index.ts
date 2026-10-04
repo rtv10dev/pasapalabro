@@ -1,7 +1,7 @@
 import { parseCreateMatchRequest } from "../shared/protocol";
 
 export { Match } from "./match";
-export { Stock } from "./stock";
+export { RecentAnswers } from "./recent-answers";
 
 export default {
   async fetch(request, env): Promise<Response> {

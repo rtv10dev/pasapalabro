@@ -1,13 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import * as z from "zod/mini";
-import { drawRoscos } from "../clues/draw";
 import {
   act,
   devicesChanged,
   listening,
   newMatch,
+  newMatchRefusal,
   nextChange,
   rematch,
+  rematchRefusal,
   silent,
   tick,
   viewFor,
@@ -26,7 +27,7 @@ import {
   type ServerMessage,
   type Settings,
 } from "../shared/protocol";
-import { WORDS } from "./word-list";
+import { drawAvoidingRecentAnswers } from "./recent-answers";
 
 // WebSocket close codes (RFC 6455, section 7.4.1).
 const NORMAL_CLOSURE = 1000;
@@ -81,11 +82,17 @@ export class Match extends DurableObject<Env> {
    * Sets the Match up, with its two Roscos drawn at once; the Worker calls
    * it once, right after issuing the id.
    */
-  create(settings: Settings, creator: Creator): Rejection | null {
+  async create(
+    settings: Settings,
+    creator: Creator,
+  ): Promise<Rejection | null> {
+    // Asked first, so a refused Match draws no Roscos for the Recent Answers.
+    const refusal = newMatchRefusal(creator);
+    if (refusal !== null) return refusal;
     const result = newMatch(
       settings,
       creator,
-      drawRoscos(WORDS, settings.difficulty, Math.random),
+      await drawAvoidingRecentAnswers(this.env, settings.difficulty),
     );
     if (!result.ok) return result.reason;
     this.save(result.state);
@@ -282,13 +289,20 @@ export class Match extends DurableObject<Env> {
     return this.ctx.blockConcurrencyWhile(async () => {
       const state = this.load();
       if (!state) return;
+      // Asked first, so a refused Revancha draws no Roscos for the Recent Answers.
+      const now = Date.now();
+      const refusal = rematchRefusal(state, device, now);
+      if (refusal !== null) {
+        send(socket, { type: "rejected", reason: refusal });
+        return;
+      }
       const id = this.env.MATCH.newUniqueId();
       const result = rematch(
         state,
         device,
         id.toString(),
-        drawRoscos(WORDS, state.settings.difficulty, Math.random),
-        Date.now(),
+        await drawAvoidingRecentAnswers(this.env, state.settings.difficulty),
+        now,
       );
       if (!result.ok) {
         send(socket, { type: "rejected", reason: result.reason });

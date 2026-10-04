@@ -3,8 +3,10 @@ import {
   act,
   devicesChanged,
   newMatch,
+  newMatchRefusal,
   nextChange,
   rematch,
+  rematchRefusal,
   silent,
   tick,
   viewFor,
@@ -158,6 +160,11 @@ describe("creating a Match", () => {
       you: view.creator,
       canStart: false,
     });
+  });
+
+  it("can be refused or not before its Roscos are drawn", () => {
+    expect(newMatchRefusal({ name: "Ana", device: ANA })).toBeNull();
+    expect(newMatchRefusal({ name: "", device: ANA })).toBe("invalid-name");
   });
 });
 
@@ -1586,6 +1593,7 @@ describe("Revancha", () => {
       ok: false,
       reason: "not-creator",
     });
+    expect(rematchRefusal(state, BEA, now)).toBe("not-creator");
   });
 
   it("waits for the Match to be over", () => {
@@ -1594,6 +1602,7 @@ describe("Revancha", () => {
       ok: false,
       reason: "match-not-over",
     });
+    expect(rematchRefusal(state, ANA, now)).toBe("match-not-over");
   });
 
   it("happens once", () => {
@@ -1602,6 +1611,12 @@ describe("Revancha", () => {
       ok: false,
       reason: "already-rematched",
     });
+    expect(rematchRefusal(state, ANA, NOW)).toBe("already-rematched");
+  });
+
+  it("can be refused or not before its Roscos are drawn", () => {
+    const { state, now } = over();
+    expect(rematchRefusal(state, ANA, now)).toBeNull();
   });
 });
 

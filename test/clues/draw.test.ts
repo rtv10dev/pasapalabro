@@ -127,7 +127,7 @@ describe("drawRosco", () => {
 describe("drawRoscos", () => {
   it("draws a Match's two Roscos, which share no answer", () => {
     // The same randomness would draw the same Words twice.
-    const [first, second] = drawRoscos(WORDS, "easy", always(0));
+    const [first, second] = drawRoscos(WORDS, "easy", [], always(0));
 
     expect(first.map(({ letter }) => letter)).toEqual(LETTERS);
     expect(second.map(({ letter }) => letter)).toEqual(LETTERS);
@@ -135,5 +135,18 @@ describe("drawRoscos", () => {
     expect(
       second.filter(({ answer }) => answers.has(normalize(answer))),
     ).toEqual([]);
+  });
+
+  it("never draws an avoided answer in either Rosco", () => {
+    // A third easy Word for C, so both Roscos have one left.
+    const words: Word[] = [
+      ...WORDS,
+      { word: "cfacilona", prevalence: 98, clue: "Definición de cfacilona" },
+    ];
+
+    const [first, second] = drawRoscos(words, "easy", ["cfácil"], always(0));
+
+    expect(first[2]?.answer).toBe("cfacilísima");
+    expect(second[2]?.answer).toBe("cfacilona");
   });
 });

@@ -57,17 +57,19 @@ export function drawRosco(
 }
 
 /**
- * Draws a Match's two Roscos from the Word List, the second avoiding the
- * first one's answers so the two never share one.
+ * Draws a Match's two Roscos from the Word List, neither drawing one of
+ * `avoid`, and the second avoiding the first one's answers so the two
+ * never share one.
  */
 export function drawRoscos(
   words: readonly Word[],
   difficulty: Difficulty,
+  avoid: readonly string[],
   random: () => number,
 ): [Rosco, Rosco] {
-  const first = drawRosco(words, difficulty, [], random);
-  const avoid = first.map(({ answer }) => answer);
-  return [first, drawRosco(words, difficulty, avoid, random)];
+  const first = drawRosco(words, difficulty, avoid, random);
+  const answers = first.map(({ answer }) => answer);
+  return [first, drawRosco(words, difficulty, [...avoid, ...answers], random)];
 }
 
 /** The Word List's Words by the letters they answer, in the list's order. */

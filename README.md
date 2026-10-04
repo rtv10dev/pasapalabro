@@ -4,7 +4,7 @@ An online, Spanish-language El Rosco for two Players and a Host in one room. See
 
 It runs on Cloudflare Workers: one Durable Object per Match owns its state and the WebSockets of every Device following it (ADR 0002). Devices send actions (join, assign a role, Empezar) and render the full view the Match sends each of them on every change. Reconnecting after a drop arrives with #8.
 
-A Match draws both its Roscos from the Word List when it is created (ADR 0005), the second avoiding the first one's answers, so there is nothing to wait for after Empezar: the 5 s countdown to the first Turn starts once both Players have pressed ¡Listo!. The Word List, `data/word-list.json`, is built by `npm run build:word-list` from open data and bundled with the Worker; each Clue is a Word's Wikcionario definition. The `Stock` Durable Object no longer holds anything; it stays for the Recent Answers.
+A Match draws both its Roscos from the Word List when it is created (ADR 0005), the second avoiding the first one's answers, so there is nothing to wait for after Empezar: the 5 s countdown to the first Turn starts once both Players have pressed ¡Listo!. The Word List, `data/word-list.json`, is built by `npm run build:word-list` from open data and bundled with the Worker; each Clue is a Word's Wikcionario definition. Both Roscos also avoid the Recent Answers: the `RecentAnswers` Durable Object (formerly the `Stock`) remembers, per Difficulty, the answers of the last `RECENT_ROSCOS` Roscos drawn (`src/shared/word-list.ts`), so they don't come back in the next Matches.
 
 ## Layout
 
@@ -12,7 +12,7 @@ A Match draws both its Roscos from the Word List when it is created (ADR 0005), 
 | --------------- | ---------------------------------------------------------------------------------- |
 | `src/rules/`    | The game rules: pure functions from state and action to new state, no Cloudflare   |
 | `src/clues/`    | Drawing a Rosco from the Word List, and the checks every Clue must pass            |
-| `src/worker/`   | The Worker (HTTP routes), the `Match` and `Stock` Durable Objects                  |
+| `src/worker/`   | The Worker (HTTP routes), the `Match` and `RecentAnswers` Durable Objects          |
 | `src/client/`   | The browser code, bundled by esbuild into `public/app.js`                          |
 | `src/shared/`   | The protocol between the two: message schemas (zod) and their types                |
 | `public/`       | Static pages and styles, served by Workers assets                                  |
