@@ -361,6 +361,8 @@ button.pasapalabra {
   overflow: hidden;
   background: #000000;
   color: #ffffff;
+  /* Outside <main>, so it doesn't inherit its centring. */
+  text-align: center;
 }
 
 .mirror video {
