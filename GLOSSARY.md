@@ -70,7 +70,7 @@ _UI_: Rosco
 _Avoid_: Wheel, board, round
 
 **Clue**:
-The statement whose answer starts with, or contains, a given letter of the Rosco; it may also list other answers with that letter that the Host can accept.
+The dictionary definition of a Word that starts with, or contains, a given letter of the Rosco; the Word is its answer, and it may also list other answers with that letter that the Host can accept.
 _UI_: Definición
 _Avoid_: Definition, question, hint
 
@@ -115,11 +115,26 @@ _UI_: Fallo
 _Avoid_: Error, wrong
 
 **Difficulty**:
-The level of a Match (Easy, Normal or Hard) that sets how obscure the words in its Roscos are; every Rosco also includes a couple of very hard Clues.
+The level of a Match (Easy, Normal or Hard) that sets how many people know the Words its Roscos are drawn from; every Rosco also includes a couple of very hard Clues, whose Words almost nobody knows.
 _UI_: Dificultad (Fácil, Normal, Difícil)
 _Avoid_: Level, mode
 
-**Stock**:
-The Roscos of each Difficulty generated ahead of time and kept ready for the next Matches to take.
+**Word List**:
+The dictionary Words that the answers of every Rosco are drawn from, each with its Prevalence and the definition that is its Clue.
 _UI_: none
-_Avoid_: Cache, pool, queue, buffer
+_Avoid_: Dictionary, lexicon, pool, vocabulary
+
+**Word**:
+An entry of the Word List: a common noun, adjective or verb in the infinitive that can be the answer of a Clue.
+_UI_: Palabra
+_Avoid_: Term, lemma, entry
+
+**Prevalence**:
+The share of people in Spain who know a Word; it decides which Difficulty the Word belongs to.
+_UI_: none
+_Avoid_: Frequency, score, rarity
+
+**Recent Answers**:
+The answers of the last Roscos of each Difficulty, which aren't drawn again until enough other Roscos have been played.
+_UI_: none
+_Avoid_: Stock, history, cache, used words

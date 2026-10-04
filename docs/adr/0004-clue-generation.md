@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0005
+---
+
 # Roscos are generated ahead of time by Gemini, with gpt-oss-120b as fallback
 
 A prototype generated one Normal Rosco with each candidate model and we checked every Clue by hand. Only gemini-3.8-flash (every Clue correct, TV-style vocabulary) and gpt-oss-120b on Workers AI (about 22 of 25 correct) were good enough; the rest wrote false Clues or ignored the letter. We use Gemini first and gpt-oss-120b when Gemini fails, because they fail differently: Gemini returned 503 "high demand" twice before succeeding, and gpt-oss-120b took 52 s. Neither delay is acceptable while Players wait, so Roscos are generated ahead of time and a Match takes one that is ready.
