@@ -1,6 +1,7 @@
 import { setUpHome } from "./home";
+import { matchIdFromPath } from "./match-link";
 import { followMatch } from "./match";
 
-const matchPath = /^\/m\/([^/]+)$/.exec(location.pathname);
-if (matchPath?.[1]) followMatch(matchPath[1]);
+const matchId = matchIdFromPath(location.pathname);
+if (matchId) followMatch(matchId);
 else setUpHome();

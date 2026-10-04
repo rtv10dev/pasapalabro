@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",
+    "jsqr": "1.4.0",
     "uqr": "^0.1.3",
     "zod": "^4.6.5"
   }

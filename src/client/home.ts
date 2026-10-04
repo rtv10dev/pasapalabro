@@ -6,8 +6,13 @@ import {
 } from "../shared/protocol";
 import { newDeviceKey, rememberDeviceKey } from "./device-key";
 import { showStatus } from "./dom";
+import { scanQr } from "./scan";
 
 export function setUpHome(): void {
+  document.querySelector("#scan")?.addEventListener("click", () => {
+    showStatus("");
+    void scanQr();
+  });
   const form = document.querySelector<HTMLFormElement>("#create");
   const name = form?.querySelector<HTMLInputElement>('input[name="name"]');
   if (name) name.maxLength = MAX_NAME_LENGTH;

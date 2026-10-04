@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- A Rosco: one circle per letter, 25 in a ring, inside the maskable safe zone. -->
+  <rect width="512" height="512" fill="#0d1224" />
+  <g fill="#4c86f0">
+    <circle id="letter" cx="256" cy="88" r="16" />
+    <use href="#letter" transform="rotate(14.4 256 256)" />
+    <use href="#letter" transform="rotate(28.8 256 256)" />
+    <use href="#letter" transform="rotate(43.2 256 256)" />
+    <use href="#letter" transform="rotate(57.6 256 256)" />
+    <use href="#letter" transform="rotate(72.0 256 256)" />
+    <use href="#letter" transform="rotate(86.4 256 256)" />
+    <use href="#letter" transform="rotate(100.8 256 256)" />
+    <use href="#letter" transform="rotate(115.2 256 256)" />
+    <use href="#letter" transform="rotate(129.6 256 256)" />
+    <use href="#letter" transform="rotate(144.0 256 256)" />
+    <use href="#letter" transform="rotate(158.4 256 256)" />
+    <use href="#letter" transform="rotate(172.8 256 256)" />
+    <use href="#letter" transform="rotate(187.2 256 256)" />
+    <use href="#letter" transform="rotate(201.6 256 256)" />
+    <use href="#letter" transform="rotate(216.0 256 256)" />
+    <use href="#letter" transform="rotate(230.4 256 256)" />
+    <use href="#letter" transform="rotate(244.8 256 256)" />
+    <use href="#letter" transform="rotate(259.2 256 256)" />
+    <use href="#letter" transform="rotate(273.6 256 256)" />
+    <use href="#letter" transform="rotate(288.0 256 256)" />
+    <use href="#letter" transform="rotate(302.4 256 256)" />
+    <use href="#letter" transform="rotate(316.8 256 256)" />
+    <use href="#letter" transform="rotate(331.2 256 256)" />
+    <use href="#letter" transform="rotate(345.6 256 256)" />
+  </g>
+</svg>

@@ -8,6 +8,7 @@
     ".",
     "../../src/client/mirror-geometry.ts",
     "../../src/client/judged-sound.ts",
-    "../../src/client/wikcionario.ts"
+    "../../src/client/wikcionario.ts",
+    "../../src/client/match-link.ts"
   ]
 }
